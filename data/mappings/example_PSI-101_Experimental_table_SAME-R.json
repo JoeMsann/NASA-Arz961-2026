@@ -1,0 +1,23 @@
+{
+ "file": "PSI-101_Experimental_table_SAME-R.csv",
+ "approved": false,
+ "prefix": "SAMER-TBL",
+ "provenance_note": "Hand-written example of the mapping format. Not loaded: the reduced-data sheet already covers these runs.",
+ "constants": {
+  "investigation": "SAME",
+  "psi_id": "PSI-101",
+  "kind": "test",
+  "gravity": "0g",
+  "phase": "overheated solid (smoke)",
+  "provenance": "nasa_table"
+ },
+ "columns": {
+  "fuel": "Sample Type",
+  "date": "Date",
+  "notes": "Description",
+  "flow_cm_s": {
+   "col": "Inlet velocity (cm/s)",
+   "numeric": true
+  }
+ }
+}

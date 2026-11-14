@@ -1,0 +1,167 @@
+[
+ {
+  "id": "SAFFIRE-I",
+  "name": "Spacecraft Fire Experiment I",
+  "psi": "PSI-98",
+  "doi": "10.60555/0t15-1z43",
+  "tier": 1,
+  "tier_label": "Direct fire-safety test",
+  "fuel": "SIBAL fabric, 94 x 40.6 cm",
+  "measures": "Large-scale flame spread in an uncrewed Cygnus",
+  "safety": "Shows how a bigger fire grows inside a real spacecraft"
+ },
+ {
+  "id": "SAFFIRE-II",
+  "name": "Spacecraft Fire Experiment II",
+  "psi": "PSI-99",
+  "doi": "10.60555/2chp-m469",
+  "tier": 1,
+  "tier_label": "Direct fire-safety test",
+  "fuel": "Silicone, SIBAL, Nomex, PMMA samples",
+  "measures": "Burn length in microgravity vs 1g for the same samples",
+  "safety": "Direct 0-g vs 1-g comparison of material flammability"
+ },
+ {
+  "id": "SAFFIRE-III",
+  "name": "Spacecraft Fire Experiment III",
+  "psi": "PSI-100",
+  "doi": "10.60555/040q-4h36",
+  "tier": 1,
+  "tier_label": "Direct fire-safety test",
+  "fuel": "SIBAL fabric",
+  "measures": "Flame spread at higher airflow (30 cm/s)",
+  "safety": "Ventilation speed effect on a large fire"
+ },
+ {
+  "id": "SAME",
+  "name": "Smoke Aerosol Measurement Experiment (SAME and SAME-R)",
+  "psi": "PSI-101",
+  "doi": null,
+  "tier": 1,
+  "tier_label": "Direct fire-safety test",
+  "fuel": "Kapton, Teflon, silicone, lamp wick, Pyrell, DBP",
+  "measures": "Smoke particle size and concentration from overheated materials",
+  "safety": "Sets what a spacecraft smoke detector must sense"
+ },
+ {
+  "id": "BASS-II",
+  "name": "Burning and Suppression of Solids II",
+  "psi": "PSI-25",
+  "doi": "10.60555/4qc4-de67",
+  "tier": 2,
+  "tier_label": "Flammability / suppression",
+  "fuel": "PMMA films, rods, slabs; SIBAL; Nomex",
+  "measures": "Burns in low-speed flow; O2, CO2, CO before and after",
+  "safety": "Material flammability and gas build-up in a sealed volume"
+ },
+ {
+  "id": "BASS",
+  "name": "Burning and Suppression of Solids",
+  "psi": "PSI-26",
+  "doi": null,
+  "tier": 2,
+  "tier_label": "Flammability / suppression",
+  "fuel": "SIBAL, PMMA spheres and slabs, wax",
+  "measures": "Burns in low-speed flow with nitrogen suppression; crew observations",
+  "safety": "Suppression strategy and flow effects"
+ },
+ {
+  "id": "FLEX",
+  "name": "Flame Extinguishment Experiment",
+  "psi": "PSI-69",
+  "doi": "10.60555/mbq8-0451",
+  "tier": 2,
+  "tier_label": "Flammability / suppression",
+  "fuel": "Methanol and heptane droplets",
+  "measures": "Extinction and burning rate vs O2, pressure, CO2, He",
+  "safety": "Limits of flammability and suppressant effectiveness"
+ },
+ {
+  "id": "FLEX-2",
+  "name": "Flame Extinguishment Experiment 2",
+  "psi": "PSI-68",
+  "doi": "10.60555/byp8-h018",
+  "tier": 2,
+  "tier_label": "Flammability / suppression",
+  "fuel": "Octane, heptane, decane, ethanol droplets and mixtures",
+  "measures": "Planned test-condition matrix only",
+  "safety": "Extends FLEX to more fuels and up to 30% O2"
+ },
+ {
+  "id": "WSTF-1G",
+  "name": "White Sands 1-g oxygen flammability thresholds (Hirsch 2011)",
+  "psi": "NTRS-20110008636",
+  "doi": null,
+  "tier": 2,
+  "tier_label": "Flammability / suppression",
+  "fuel": "PET, PEI, silicone, polyimide, PEEK, PMMA, PVC, nylon and others",
+  "measures": "Upward limiting oxygen index (ULOI) and maximum oxygen concentration (MOC) in 1 g",
+  "safety": "Ground-test thresholds that microgravity results are compared against"
+ },
+ {
+  "id": "SPICE",
+  "name": "Smoke Point In Co-flow Experiment",
+  "psi": "PSI-107",
+  "doi": "10.60555/9kbh-e962",
+  "tier": 3,
+  "tier_label": "Fundamental flame science",
+  "fuel": "Ethylene, propane, propylene jets",
+  "measures": "Smoke-point flame length",
+  "safety": "When a flame starts releasing soot"
+ },
+ {
+  "id": "CFI",
+  "name": "Cool Flames Investigation",
+  "psi": "PSI-39",
+  "doi": "10.60555/m6pj-a914",
+  "tier": 3,
+  "tier_label": "Fundamental flame science",
+  "fuel": "Droplets",
+  "measures": "Low-temperature cool-flame burning",
+  "safety": "A flame can look out and still be burning"
+ },
+ {
+  "id": "ACME-BRE",
+  "name": "Burning Rate Emulator",
+  "psi": "PSI-20",
+  "doi": "10.60555/vb93-3y72",
+  "tier": 2,
+  "tier_label": "Flammability / suppression",
+  "fuel": "Gas burner emulating solids and liquids",
+  "measures": "Flammability maps",
+  "safety": "Screens materials without burning them"
+ },
+ {
+  "id": "ACME-CLD",
+  "name": "Coflow Laminar Diffusion Flame",
+  "psi": "PSI-21",
+  "doi": "10.60555/23e1-9950",
+  "tier": 3,
+  "tier_label": "Fundamental flame science",
+  "fuel": "Gas jets",
+  "measures": "Soot and stability benchmarks",
+  "safety": "Model validation"
+ },
+ {
+  "id": "ACME-S-FLAME",
+  "name": "Structure and Response of Spherical Diffusion Flames",
+  "psi": "PSI-23",
+  "doi": "10.60555/k57n-p030",
+  "tier": 3,
+  "tier_label": "Fundamental flame science",
+  "fuel": "Gas, spherical burner",
+  "measures": "Flame growth and extinction",
+  "safety": "Model validation"
+ },
+ {
+  "id": "ACME-FLAME-DESIGN",
+  "name": "Flame Design",
+  "psi": "PSI-10",
+  "doi": "10.60555/w4zy-bt45",
+  "tier": 3,
+  "tier_label": "Fundamental flame science",
+  "fuel": "Gas, spherical burner",
+  "measures": "Soot inception limits",
+  "safety": "Model validation"
+ }
+]

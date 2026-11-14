@@ -1,0 +1,36 @@
+"""Offline test: a scripted stand-in for the LLM drives the real graph and the real tools.
+
+  cd services/agent && python test_graph.py
+"""
+from langchain_core.messages import AIMessage
+from langchain_core.runnables import RunnableLambda
+import tools
+from graph import build_graph
+from app import run_chat, Turn
+
+SQL = ("select t.test_id, t.investigation, t.psi_id, t.fuel, t.o2_pct, t.pressure_psia, t.outcome "
+       "from tests t where t.kind='test' and t.o2_pct > 30 order by t.o2_pct desc")
+
+
+def scripted(messages):
+    n_tool = sum(1 for m in messages if m.type == "tool")
+    if n_tool == 0:
+        return AIMessage("", tool_calls=[{"name": "sql_query", "args": {"query": SQL}, "id": "c1", "type": "tool_call"}])
+    if n_tool == 1:
+        return AIMessage("", tool_calls=[{"name": "search_reports", "args": {"query": "FLEX droplet extinction oxygen"}, "id": "c2", "type": "tool_call"}])
+    return AIMessage("Tests above 30% O2 are FLEX droplet burns [PSI-69](https://doi.org/10.60555/mbq8-0451).")
+
+
+if __name__ == "__main__":
+    assert "error" in tools.run_sql("delete from tests")
+    assert "error" in tools.run_sql("select 1; drop table tests")
+    assert tools.run_sql("select count(*) from tests")["rows"][0][0] > 900
+
+    out = run_chat(build_graph(RunnableLambda(scripted)), [Turn(role="user", content="Which tests ran above 30% O2, what happened?")])
+    assert [s["tool"] for s in out["steps"]] == ["sql_query", "search_reports"], out["steps"]
+    rows = out["steps"][0]["result"]["rows"]
+    assert rows and all(r[4] > 30 for r in rows)
+    assert out["citations"] and out["citations"][0]["ref"] == "PSI-69"
+    print("graph ok:", len(rows), "rows above 30% O2;", "search hits:", len(out["steps"][1]["result"]["results"]),
+          "; note:", out["steps"][1]["result"]["note"])
+    print("citations:", out["citations"])

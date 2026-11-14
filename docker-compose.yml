@@ -1,0 +1,27 @@
+# docker compose up --build        -> http://localhost:3000
+services:
+  ml:                      # unified table, habitat navigator, flame predictor
+    build: { context: ., dockerfile: services/ml/Dockerfile }
+    ports: ["8001:8001"]
+
+  agent:                   # Ask PSI: LangGraph agent on Groq, SQL + search tools
+    build: { context: ., dockerfile: services/agent/Dockerfile }
+    env_file:
+      - path: .env
+        required: false
+    ports: ["8002:8002"]
+
+  web:                     # Next.js interface; talks to the two services over the compose network
+    build: { context: ., dockerfile: web/Dockerfile }
+    environment:
+      ML_URL: http://ml:8001
+      AGENT_URL: http://agent:8002
+    ports: ["3000:3000"]
+    depends_on: [ml, agent]
+
+  pipeline:                # one-off: rebuild the table and retrain.  docker compose run --rm pipeline
+    profiles: [tools]
+    image: python:3.13-slim
+    working_dir: /repo
+    volumes: [".:/repo"]
+    command: sh -c "pip install -q -r pipeline/requirements.txt && python pipeline/build.py"

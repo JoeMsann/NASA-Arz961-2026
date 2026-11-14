@@ -1,0 +1,47 @@
+{
+ "extinction": {
+  "n": 206,
+  "positives": 179,
+  "shipped_auc": 0.81854,
+  "shipped_brier": 0.08911,
+  "gbm_auc": 0.77747,
+  "gbm_brier": 0.0996,
+  "naive_brier": 0.11449
+ },
+ "burn_rate": {
+  "n": 257,
+  "shipped_r2": 0.68133,
+  "shipped_mae": 0.04972,
+  "gbm_r2": 0.6155,
+  "gbm_mae": 0.05789,
+  "naive_mae": 0.10819
+ },
+ "excluded_disruption_runs": 55,
+ "validation": "5-fold GroupKFold grouped by test date, so same-day repeats never straddle train and test",
+ "shipped": "Logistic regression and ridge regression. Gradient boosting was tested and scored lower out-of-fold.",
+ "rows": {
+  "total": 992,
+  "by_investigation": {
+   "BASS": 122,
+   "BASS-II": 129,
+   "FLEX": 274,
+   "FLEX-2": 160,
+   "SAFFIRE-I": 2,
+   "SAFFIRE-II": 7,
+   "SAFFIRE-III": 2,
+   "SAME": 154,
+   "SPICE": 90,
+   "WSTF-1G": 52
+  },
+  "by_kind": {
+   "planned": 160,
+   "test": 780,
+   "threshold_1g": 52
+  },
+  "by_provenance": {
+   "nasa_table": 574,
+   "third_party_extract": 366,
+   "third_party_transcription": 52
+  }
+ }
+}
