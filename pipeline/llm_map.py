@@ -32,7 +32,7 @@ First rows:
 def main(path):
     p = pathlib.Path(path)
     rows = list(csv.reader(open(p, encoding="latin-1")))
-    body = {"model": os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"), "temperature": 0,
+    body = {"model": os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b"), "temperature": 0,
             "response_format": {"type": "json_object"},
             "messages": [{"role": "user", "content": PROMPT.format(schema=SCHEMA, name=p.name, header=rows[0],
                                                                     rows="\n".join(map(str, rows[1:6])))}]}

@@ -39,6 +39,6 @@ def build_graph(llm_with_tools):
 
 def groq_graph():
     from langchain_groq import ChatGroq
-    llm = ChatGroq(model=os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"), temperature=0, max_tokens=900,
+    llm = ChatGroq(model=os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b"), temperature=0, max_tokens=900,
                    api_key=os.environ["GROQ_API_KEY"])
     return build_graph(llm.bind_tools(TOOLS))

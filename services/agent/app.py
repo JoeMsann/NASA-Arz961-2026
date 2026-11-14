@@ -68,7 +68,7 @@ def run_chat(g, turns: list[Turn]) -> dict:
 @app.get("/health")
 def health():
     return {"ok": True, "llm_configured": bool(os.environ.get("GROQ_API_KEY")),
-            "model": os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")}
+            "model": os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b")}
 
 
 @app.post("/chat")
