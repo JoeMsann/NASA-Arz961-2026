@@ -36,6 +36,7 @@ Rebuild the table and retrain: `docker compose run --rm pipeline` (or `python pi
 | 1. Habitat Risk Navigator | 3D scene + first tab | Working. Coverage map, "No data here", ranking by closeness then fire-safety class |
 | 2. Unified test table | `pipeline/build.py`, table tab, CSV download | Working. 992 rows from 12 source files |
 | 3. Ask PSI chat with citations | `services/agent` | Graph and tools tested offline. Live Groq call not tested (no key in the build environment) |
+| 4. Compare two investigations | Compare tab, `GET /compare` on `ml` | Working. Side-by-side table, shared and differing points, both on one oxygen-pressure map. See `docs/compare-and-ask-psi.md` |
 | 5. Flammability predictor | Predictor tab | FLEX self-extinction and burn-rate models. No CFI-G ignition classifier: that data was not available |
 | 7. Earth benefits | Last tab | Three sourced cards |
 
