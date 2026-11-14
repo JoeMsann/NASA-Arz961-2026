@@ -26,7 +26,6 @@ export default function TestTable() {
 
   return (
     <div className="card">
-      <h2>Unified test table</h2>
       <p className="note">One row per test from every loaded source, in one schema. Blank means the source did not record it. “Assumed” names a value added during cleaning.</p>
       <div className="row filters">
         {pick("investigation", "Investigation")}{pick("kind", "Type", KIND)}{pick("phase", "Fuel phase")}
@@ -34,7 +33,7 @@ export default function TestTable() {
         <a className="ghost" href="/api/svc/ml/tests.csv">Download CSV</a>
       </div>
       {!data ? <p className="note">Loading…</p> : <>
-        <div className="scroll">
+        <div className="scroll scroll-lg">
           <table>
             <thead><tr><th>Test</th><th>Investigation</th><th>Type</th><th>Fuel</th><th>Phase</th><th>O₂ %</th><th>psi</th><th>Flow cm/s</th><th>Diluent</th><th>Outcome</th><th>Measured</th><th>Assumed</th><th>Source</th></tr></thead>
             <tbody>
@@ -50,7 +49,7 @@ export default function TestTable() {
             </tbody>
           </table>
         </div>
-        <div className="row" style={{ marginTop: 10 }}>
+        <div className="row gap-top">
           <button className="ghost" disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</button>
           <span className="note">{data.total ? `${page * PAGE + 1}–${Math.min(data.total, (page + 1) * PAGE)} of ${data.total}` : "No rows match"}</span>
           <button className="ghost" disabled={(page + 1) * PAGE >= data.total} onClick={() => setPage(page + 1)}>Next</button>

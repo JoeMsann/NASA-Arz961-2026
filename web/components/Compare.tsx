@@ -62,8 +62,8 @@ export default function Compare({ onAsk }: { onAsk: (q: string) => void }) {
     ["What stayed the same", list(A.fixed), list(B.fixed), false],
   ];
   const head = (p: any) => (
-    <th style={{ width: "41%" }}>
-      <b style={{ color: "var(--text)", fontSize: 15 }}>{p.id}</b> <span className={`tag t${p.tier}`}>{p.tier_label}</span>
+    <th>
+      <b>{p.id}</b> <span className={`tag t${p.tier}`}>{p.tier_label}</span>
       <div>{p.name}</div>
       <div>{p.doi_url ? <a href={p.doi_url} target="_blank" rel="noreferrer">{p.psi}</a> : p.psi ?? "PSI id not confirmed"}</div>
     </th>
@@ -72,13 +72,12 @@ export default function Compare({ onAsk }: { onAsk: (q: string) => void }) {
   return (
     <div className="grid">
       <div className="card">
-        <h2>Compare two investigations</h2>
         <p className="note">{d.note}</p>
-        <div className="grid g2" style={{ marginTop: 8 }}>{pick(a, setA, "First investigation")}{pick(b, setB, "Second investigation")}</div>
-        {a === b && <div className="warnline" style={{ marginTop: 8 }}>Both sides show the same investigation.</div>}
+        <div className="grid gap-top">{pick(a, setA, "First investigation")}{pick(b, setB, "Second investigation")}</div>
+        {a === b && <div className="warnline gap-top">Both sides show the same investigation.</div>}
       </div>
 
-      <div className="grid g2">
+      <div className="grid">
         <div className="card"><h3>What they share</h3>
           {d.similarities.length ? <ul className="plain">{d.similarities.map((s: string) => <li key={s}>{s}</li>)}</ul> : <p className="note">Nothing in common was found in the loaded data.</p>}
         </div>
@@ -88,12 +87,12 @@ export default function Compare({ onAsk }: { onAsk: (q: string) => void }) {
       </div>
 
       <div className="card">
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <h2>Side by side</h2>
+        <div className="row between">
+          <h3>Side by side</h3>
           <button className="ghost" onClick={() => onAsk(`Compare ${A.id} (${A.name}) with ${B.id} (${B.name}): what did each one find, and why do their results differ?`)}>Ask PSI to explain the difference</button>
         </div>
         <p className="note">Rows marked with an orange bar differ between the two.</p>
-        <div className="scroll">
+        <div className="scroll gap-top">
           <table className="cmp">
             <thead><tr><th />{head(A)}{head(B)}</tr></thead>
             <tbody>
@@ -105,22 +104,22 @@ export default function Compare({ onAsk }: { onAsk: (q: string) => void }) {
       </div>
 
       <div className="card">
-        <h2>Test conditions on one map</h2>
+        <h3>Test conditions on one map</h3>
         {A.points.length + B.points.length === 0 ? <p className="note">Neither investigation lists both oxygen and pressure, so there is nothing to plot.</p> : <>
           <p className="note">Each mark is a distinct oxygen and pressure combination that was tested.
             {A.points.length === 0 && ` ${A.id} lists no oxygen and pressure pairs.`}{B.points.length === 0 && ` ${B.id} lists no oxygen and pressure pairs.`}</p>
-          <div style={{ height: 360 }}>
+          <div className="chart">
             <ResponsiveContainer>
-              <ScatterChart margin={{ top: 10, right: 24, bottom: 34, left: 8 }}>
+              <ScatterChart margin={{ top: 8, right: 12, bottom: 28, left: 0 }}>
                 <CartesianGrid stroke="#1e2838" />
                 <XAxis type="number" dataKey="o2" domain={["auto", "auto"]} {...axis} label={{ value: "Oxygen (%)", position: "bottom", fill: "#93a1b8", fontSize: 12 }} />
-                <YAxis type="number" dataKey="p" domain={["auto", "auto"]} {...axis} label={{ value: "Pressure (psi)", angle: -90, position: "insideLeft", fill: "#93a1b8", fontSize: 12 }} />
+                <YAxis type="number" dataKey="p" domain={["auto", "auto"]} width={46} {...axis} label={{ value: "Pressure (psi)", angle: -90, position: "insideLeft", fill: "#93a1b8", fontSize: 12 }} />
                 <ZAxis range={[60, 60]} />
                 <Tooltip cursor={{ stroke: "#3a4a63" }} content={({ payload }) => {
                   const r = payload?.[0]?.payload; if (!r) return null;
                   return <div className="card tip">O₂ {fmt(r.o2)}% · {fmt(r.p)} psi</div>;
                 }} />
-                <Legend verticalAlign="top" wrapperStyle={{ fontSize: 13 }} />
+                <Legend verticalAlign="top" wrapperStyle={{ fontSize: 12, paddingBottom: 8 }} />
                 <Scatter name={A.id} data={A.points} fill="#5aa9ff" shape="circle" fillOpacity={0.75} isAnimationActive={false} />
                 {a !== b && <Scatter name={B.id} data={B.points} fill="#ff9d4d" shape="diamond" fillOpacity={0.75} isAnimationActive={false} />}
               </ScatterChart>
