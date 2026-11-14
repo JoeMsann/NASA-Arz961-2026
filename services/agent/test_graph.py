@@ -34,3 +34,21 @@ if __name__ == "__main__":
     print("graph ok:", len(rows), "rows above 30% O2;", "search hits:", len(out["steps"][1]["result"]["results"]),
           "; note:", out["steps"][1]["result"]["note"])
     print("citations:", out["citations"])
+    assert out["citations"][0]["source"] == "answer" and out["warning"] is None
+
+    # An answer that forgets to cite still gets the records its tool calls returned, with a warning.
+    def uncited(messages):
+        m = scripted(messages)
+        return m if m.tool_calls else AIMessage("Only droplet tests ran above 30% oxygen.")
+    out = run_chat(build_graph(RunnableLambda(uncited)), [Turn(role="user", content="Which tests ran above 30% O2?")])
+    assert out["citations"] and all(c["source"] == "tools" for c in out["citations"]), out["citations"]
+    assert out["warning"] and "did not cite" in out["warning"]
+
+    # Hardware and sensors are searchable, and investigations without a PSI id do not break the index.
+    hits = tools.search_local("glovebox flow duct hardware")
+    assert hits and any("Glovebox" in h["text"] for h in hits[:3]), hits
+    hits = tools.search_local("electric field partial gravity")
+    assert hits and hits[0]["ref"] == "ACME-E-FIELD", hits
+    hw = tools.run_sql("select id, psi, hardware from investigations where hardware like '%MDCA%' order by id")
+    assert [r[0] for r in hw["rows"]] == ["CFI", "FLEX", "FLEX-2"], hw
+    print("fallback citations, hardware search and investigations columns ok")

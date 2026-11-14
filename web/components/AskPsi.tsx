@@ -7,6 +7,7 @@ const EXAMPLES = [
   "Which tests ran above 30% O2, what happened?",
   "How many solid-fuel tests exist below 18% oxygen, and from which investigations?",
   "What did the crew observe when nitrogen was used to suppress a flame?",
+  "Which investigations shared the same hardware, and what did each burn?",
 ];
 
 // Renders [label](https://…) links and line breaks. Everything else is shown as plain text.
@@ -59,7 +60,12 @@ export default function AskPsi({ seed, onSeedUsed }: { seed: string; onSeedUsed:
           {m.warning && <div className="warnline">{m.warning}</div>}
           {m.content && <div>{rich(m.content)}</div>}
           {m.citations && m.citations.length > 0 && (
-            <div className="row" style={{ marginTop: 8 }}>{m.citations.map((c) => <a key={c.ref} className="tag" href={c.url ?? undefined} target="_blank" rel="noreferrer">{c.ref} · {c.title}</a>)}</div>
+            <div className="row" style={{ marginTop: 8 }}>
+              <span className="note">{m.citations.every((c) => c.source === "tools") ? "Records the tools returned:" : "Cited:"}</span>
+              {m.citations.map((c) => c.url
+                ? <a key={c.ref} className="tag" href={c.url} target="_blank" rel="noreferrer">{c.ref} · {c.title}</a>
+                : <span key={c.ref} className="tag" title="No DOI on record for this investigation">{c.ref} · {c.title} · no DOI on record</span>)}
+            </div>
           )}
           {m.steps && m.steps.length > 0 && (
             <details><summary>{m.steps.length} tool call{m.steps.length > 1 ? "s" : ""}</summary>

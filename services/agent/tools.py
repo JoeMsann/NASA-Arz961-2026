@@ -1,5 +1,5 @@
 """The two tools the Ask PSI agent can call: read-only SQL and evidence search."""
-import json, os, pathlib, re, sqlite3
+import json, math, os, pathlib, re, sqlite3
 import httpx
 from langchain_core.tools import tool
 
@@ -15,7 +15,10 @@ tests(test_id, investigation, psi_id, kind, gravity, date, fuel, phase, o2_pct, 
   phase: 'liquid droplet' | 'solid' | 'gas jet' | 'overheated solid (smoke)'
   outcome: self_extinguished | burned_to_completion | droplet_disrupted | burned | no_spread | burns_at_or_above_this_o2 | NULL
   o2_pct is percent (0-100). pressure_psia is psi absolute. `assumed` names fields that were not in the NASA table.
-investigations(id, name, psi, doi, doi_url, tier, tier_label, fuel, measures, safety, rows)
+investigations(id, name, psi, doi, doi_url, tier, tier_label, fuel, measures, safety, objective, platform, hardware,
+               sensors, flown, details_basis, rows)
+  one row per investigation, including some with rows = 0 (catalog description only, no test records loaded)
+  psi and doi can be NULL. hardware, platform and sensors are free text: match them with LIKE.
   join: tests.investigation = investigations.id"""
 
 _FORBIDDEN = re.compile(r"\b(insert|update|delete|drop|alter|create|attach|detach|pragma|replace|vacuum)\b", re.I)
@@ -51,14 +54,21 @@ def search_local(query: str, k: int = 6) -> list[dict]:
     con.row_factory = sqlite3.Row
     docs = []
     for r in con.execute("select * from investigations"):
-        docs.append({"ref": f"{r['psi']} ({r['id']})", "url": r["doi_url"], "kind": "investigation",
-                     "text": f"{r['name']}. Fuel: {r['fuel']}. Measures: {r['measures']}. Fire-safety relevance: {r['safety']}. Records loaded: {r['rows']}."})
+        r = dict(r)
+        extra = "".join(f" {label}: {str(r[k]).rstrip('.')}." for k, label in [("objective", "Objective"), ("platform", "Platform"), ("hardware", "Hardware"),
+                                                                ("sensors", "Sensors"), ("flown", "Flown")] if r.get(k))
+        docs.append({"ref": f"{r['psi']} ({r['id']})" if r["psi"] else r["id"], "url": r["doi_url"], "kind": "investigation",
+                     "text": f"{r['name']}.{extra} Fuel: {r['fuel']}. Measures: {r['measures']}. Fire-safety relevance: {r['safety']}. "
+                             f"Records loaded: {r['rows']}."})
     for r in con.execute("select t.test_id, t.fuel, t.o2_pct, t.notes, i.psi, i.doi_url from tests t join investigations i on i.id=t.investigation "
                          "where t.investigation in ('BASS','SAFFIRE-I','SAFFIRE-II','SAFFIRE-III') and t.notes is not null"):
         docs.append({"ref": f"{r['psi']} test {r['test_id']}", "url": r["doi_url"], "kind": "test note",
                      "text": f"{r['fuel']}, O2 {r['o2_pct']}%. {r['notes']}"})
     con.close()
-    scored = [(len(qs & set(_words(d["text"] + " " + d["ref"]))), d) for d in docs]
+    # Rare words count for more than common ones, so "nitrogen" outranks "test" or "flame".
+    bags = [set(_words(d["text"] + " " + d["ref"])) for d in docs]
+    idf = {w: math.log(1 + len(docs) / sum(w in b for b in bags)) for w in qs if any(w in b for b in bags)}
+    scored = [(sum(idf[w] for w in qs & b), d) for b, d in zip(bags, docs)]
     return [d for s, d in sorted(scored, key=lambda x: -x[0]) if s > 0][:k]
 
 
@@ -70,8 +80,9 @@ def search_ntrs(query: str, k: int = 4) -> list[dict]:
     out = []
     for x in r.json().get("results", []):
         year = str((x.get("publications") or [{}])[0].get("publicationDate") or x.get("distributionDate") or "")[:4]
+        abstract = re.sub(r"\s+", " ", str(x.get("abstract") or ""))[:600]   # outside the f-string: Python < 3.12 rejects a backslash there
         out.append({"ref": f"NTRS {x.get('id')} ({year})", "url": f"https://ntrs.nasa.gov/citations/{x.get('id')}", "kind": "NTRS report",
-                    "text": f"{x.get('title')}. {re.sub(r'\\s+', ' ', str(x.get('abstract') or ''))[:600]}"})
+                    "text": f"{x.get('title')}. {abstract}"})
     return out
 
 

@@ -31,15 +31,23 @@ def graph():
 def citations(text: str, steps: list[dict]) -> list[dict]:
     """Investigations and reports the answer names, resolved to links from the database or tool output."""
     con = sqlite3.connect(f"file:{tools.DB}?mode=ro", uri=True)
-    inv = {r[0]: {"ref": r[0], "title": r[1], "url": r[2]} for r in con.execute("select psi, name, doi_url from investigations")}
+    inv = {r[0]: {"ref": r[0], "title": r[1], "url": r[2]} for r in con.execute("select psi, name, doi_url from investigations where psi is not null")}
     con.close()
-    found = {p: inv[p] for p in re.findall(r"(?:PSI|NTRS)-\d+", text) if p in inv}
+    found = {p: {**inv[p], "source": "answer"} for p in re.findall(r"(?:PSI|NTRS)-\d+", text) if p in inv}
     for s in steps:
         if s["tool"] == "search_reports":
             for r in (s["result"].get("results") or []):
                 m = re.match(r"NTRS (\d+)", r["ref"])
                 if m and m.group(1) in text:
-                    found[r["ref"]] = {"ref": r["ref"], "title": r["text"][:90], "url": r["url"]}
+                    found[r["ref"]] = {"ref": r["ref"], "title": r["text"][:90], "url": r["url"], "source": "answer"}
+    # The model sometimes forgets to cite. Then list every PSI or NTRS record its tool calls returned, marked as such,
+    # so the reader can still trace the answer.
+    if not found:
+        for s in steps:
+            blob = json.dumps(s["result"].get("rows") or s["result"].get("results") or [])
+            for p in re.findall(r"(?:PSI|NTRS)-\d+", blob):
+                if p in inv:
+                    found.setdefault(p, {**inv[p], "source": "tools"})
     return list(found.values())
 
 
@@ -61,8 +69,15 @@ def run_chat(g, turns: list[Turn]) -> dict:
     answer = next((m.content for m in reversed(out) if isinstance(m, AIMessage) and m.content and not m.tool_calls), "")
     if not answer:
         answer = "I could not finish an answer within the step limit. The tool results are listed below."
-    warn = None if steps else "No tool was called, so this answer is not grounded in the dataset. Treat it as unverified."
-    return {"answer": answer, "steps": steps, "citations": citations(answer, steps), "warning": warn}
+    cites = citations(answer, steps)
+    warn = None
+    if not steps:
+        warn = "No tool was called, so this answer is not grounded in the dataset. Treat it as unverified."
+    elif cites and all(c["source"] == "tools" for c in cites):
+        warn = "The answer did not cite its sources. The records its tool calls returned are listed instead."
+    elif not cites:
+        warn = "No PSI or NTRS record could be linked to this answer. Check the tool calls below."
+    return {"answer": answer, "steps": steps, "citations": cites, "warning": warn}
 
 
 @app.get("/health")
