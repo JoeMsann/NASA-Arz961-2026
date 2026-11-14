@@ -42,7 +42,7 @@ def run_sql(query: str) -> dict:
 
 # What the model is shown is smaller than what the tools return to the interface. Groq's free tier allows a few thousand
 # input tokens per minute, and every tool result is sent back to the model on each later step of the same answer.
-CELL, SQL_CHARS, SEARCH_TEXT = 220, 6000, 320
+CELL, SQL_CHARS, SEARCH_TEXT, SEARCH_HITS = 200, 3500, 260, 7
 
 
 def _clip(s, n):
@@ -135,7 +135,9 @@ def search_reports(query: str) -> str:
     happened and why. Use for explanations, mechanisms and background. Returns JSON results, each with a
     `ref` (PSI id or NTRS id) and `url` to cite."""
     res = search_all(query)
-    res["results"] = [{**r, "text": _clip(r["text"], SEARCH_TEXT)} for r in res["results"]]
+    ntrs = [r for r in res["results"] if r["kind"] == "NTRS report"][:3]      # keep room for reports beside local evidence
+    local = [r for r in res["results"] if r["kind"] != "NTRS report"][:SEARCH_HITS - len(ntrs)]
+    res["results"] = [{**r, "text": _clip(r["text"], SEARCH_TEXT)} for r in local + ntrs]
     return json.dumps(res)
 
 
