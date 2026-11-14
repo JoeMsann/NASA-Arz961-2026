@@ -2,11 +2,13 @@
  "extinction": {
   "n": 206,
   "positives": 179,
-  "shipped_auc": 0.81854,
-  "shipped_brier": 0.08911,
+  "shipped_auc": 0.87999,
+  "shipped_brier": 0.07879,
   "gbm_auc": 0.77747,
   "gbm_brier": 0.0996,
-  "naive_brier": 0.11449
+  "naive_brier": 0.11449,
+  "shipped_accuracy": 0.913,
+  "shipped_balanced_accuracy": 0.698
  },
  "burn_rate": {
   "n": 257,
@@ -14,11 +16,13 @@
   "shipped_mae": 0.04972,
   "gbm_r2": 0.6155,
   "gbm_mae": 0.05789,
-  "naive_mae": 0.10819
+  "naive_mae": 0.10819,
+  "shipped_rmse": 0.0776
  },
  "excluded_disruption_runs": 55,
  "validation": "5-fold GroupKFold grouped by test date, so same-day repeats never straddle train and test",
- "shipped": "Logistic regression and ridge regression. Gradient boosting was tested and scored lower out-of-fold.",
+ "shipped": "Extinction: logistic regression with pairwise interaction terms. Burning rate: ridge regression. Both beat 14 alternatives (random forest, bagging, boosting, SVM, kNN, neural nets) out-of-fold.",
+ "extinction_C": 1.0,
  "rows": {
   "total": 992,
   "by_investigation": {
@@ -42,6 +46,332 @@
    "nasa_table": 574,
    "third_party_extract": 366,
    "third_party_transcription": 52
+  }
+ },
+ "training_sources": {
+  "FLEX (PSI-69)": 261
+ },
+ "comparison": {
+  "protocol": "nested CV: 5 grouped folds (by test date) x 3 shuffled repeats; inner 3-fold grouped grid search",
+  "extinction": {
+   "Logistic + interactions (shipped)": {
+    "Brier": 0.0764,
+    "AUC": 0.8748,
+    "log loss": 0.2595,
+    "bal. acc": 0.6981,
+    "AP(completion)": 0.6239,
+    "Brier sd": 0.0043,
+    "AUC sd": 0.0105,
+    "log loss sd": 0.0111,
+    "bal. acc sd": 0.0185,
+    "AP(completion) sd": 0.0389
+   },
+   "Neural net (sklearn MLP)": {
+    "Brier": 0.0764,
+    "AUC": 0.8948,
+    "log loss": 0.276,
+    "bal. acc": 0.6793,
+    "AP(completion)": 0.6141,
+    "Brier sd": 0.0038,
+    "AUC sd": 0.0049,
+    "log loss sd": 0.0148,
+    "bal. acc sd": 0.0302,
+    "AP(completion) sd": 0.0089
+   },
+   "Neural net (sklearn), pre-trained on k \u2192 fine-tuned": {
+    "Brier": 0.0795,
+    "AUC": 0.878,
+    "log loss": 0.2655,
+    "bal. acc": 0.6351,
+    "AP(completion)": 0.5994,
+    "Brier sd": 0.0032,
+    "AUC sd": 0.0141,
+    "log loss sd": 0.013,
+    "bal. acc sd": 0.0158,
+    "AP(completion) sd": 0.03
+   },
+   "Neural net (torch), pre-trained on k \u2192 fine-tuned": {
+    "Brier": 0.0808,
+    "AUC": 0.8838,
+    "log loss": 0.3095,
+    "bal. acc": 0.6783,
+    "AP(completion)": 0.595,
+    "Brier sd": 0.002,
+    "AUC sd": 0.0155,
+    "log loss sd": 0.0235,
+    "bal. acc sd": 0.0174,
+    "AP(completion) sd": 0.0238
+   },
+   "Logistic regression (previous)": {
+    "Brier": 0.086,
+    "AUC": 0.8136,
+    "log loss": 0.3059,
+    "bal. acc": 0.6055,
+    "AP(completion)": 0.5492,
+    "Brier sd": 0.006,
+    "AUC sd": 0.0334,
+    "log loss sd": 0.0197,
+    "bal. acc sd": 0.0028,
+    "AP(completion) sd": 0.0793
+   },
+   "SVM (RBF)": {
+    "Brier": 0.0898,
+    "AUC": 0.8254,
+    "log loss": 0.3028,
+    "bal. acc": 0.5938,
+    "AP(completion)": 0.5139,
+    "Brier sd": 0.0021,
+    "AUC sd": 0.0255,
+    "log loss sd": 0.0077,
+    "bal. acc sd": 0.0238,
+    "AP(completion) sd": 0.0279
+   },
+   "Extra trees": {
+    "Brier": 0.0931,
+    "AUC": 0.8437,
+    "log loss": 0.2996,
+    "bal. acc": 0.5234,
+    "AP(completion)": 0.4389,
+    "Brier sd": 0.0068,
+    "AUC sd": 0.0267,
+    "log loss sd": 0.0169,
+    "bal. acc sd": 0.0184,
+    "AP(completion) sd": 0.0853
+   },
+   "k-nearest neighbours": {
+    "Brier": 0.0935,
+    "AUC": 0.8709,
+    "log loss": 0.3319,
+    "bal. acc": 0.5468,
+    "AP(completion)": 0.4234,
+    "Brier sd": 0.005,
+    "AUC sd": 0.0164,
+    "log loss sd": 0.0383,
+    "bal. acc sd": 0.0091,
+    "AP(completion) sd": 0.0512
+   },
+   "Gradient boosting": {
+    "Brier": 0.0957,
+    "AUC": 0.7599,
+    "log loss": 0.3287,
+    "bal. acc": 0.6018,
+    "AP(completion)": 0.4201,
+    "Brier sd": 0.0052,
+    "AUC sd": 0.0489,
+    "log loss sd": 0.0191,
+    "bal. acc sd": 0.0161,
+    "AP(completion) sd": 0.0494
+   },
+   "Random forest": {
+    "Brier": 0.0973,
+    "AUC": 0.7697,
+    "log loss": 0.3292,
+    "bal. acc": 0.5475,
+    "AP(completion)": 0.4225,
+    "Brier sd": 0.0029,
+    "AUC sd": 0.0161,
+    "log loss sd": 0.0069,
+    "bal. acc sd": 0.0463,
+    "AP(completion) sd": 0.0535
+   },
+   "Neural net (torch MLP)": {
+    "Brier": 0.0984,
+    "AUC": 0.8483,
+    "log loss": 0.6053,
+    "bal. acc": 0.6718,
+    "AP(completion)": 0.5479,
+    "Brier sd": 0.0085,
+    "AUC sd": 0.0167,
+    "log loss sd": 0.0354,
+    "bal. acc sd": 0.0322,
+    "AP(completion) sd": 0.044
+   },
+   "Bagging (trees)": {
+    "Brier": 0.0998,
+    "AUC": 0.7537,
+    "log loss": 0.3599,
+    "bal. acc": 0.5676,
+    "AP(completion)": 0.3906,
+    "Brier sd": 0.0052,
+    "AUC sd": 0.0366,
+    "log loss sd": 0.04,
+    "bal. acc sd": 0.0196,
+    "AP(completion) sd": 0.046
+   },
+   "Hist. gradient boosting": {
+    "Brier": 0.1017,
+    "AUC": 0.7744,
+    "log loss": 0.3421,
+    "bal. acc": 0.5524,
+    "AP(completion)": 0.3739,
+    "Brier sd": 0.0047,
+    "AUC sd": 0.0503,
+    "log loss sd": 0.0202,
+    "bal. acc sd": 0.0232,
+    "AP(completion) sd": 0.0646
+   },
+   "Decision tree": {
+    "Brier": 0.1126,
+    "AUC": 0.7,
+    "log loss": 0.4239,
+    "bal. acc": 0.5453,
+    "AP(completion)": 0.2627,
+    "Brier sd": 0.0137,
+    "AUC sd": 0.0715,
+    "log loss sd": 0.054,
+    "bal. acc sd": 0.0473,
+    "AP(completion) sd": 0.081
+   },
+   "Naive (base rate)": {
+    "Brier": 0.114,
+    "AUC": 0.4637,
+    "log loss": 0.3891,
+    "bal. acc": 0.5,
+    "AP(completion)": 0.1223,
+    "Brier sd": 0.0001,
+    "AUC sd": 0.0102,
+    "log loss sd": 0.0002,
+    "bal. acc sd": 0.0,
+    "AP(completion) sd": 0.003
+   },
+   "AdaBoost": {
+    "Brier": 0.1169,
+    "AUC": 0.603,
+    "log loss": 0.3977,
+    "bal. acc": 0.4991,
+    "AP(completion)": 0.1994,
+    "Brier sd": 0.0033,
+    "AUC sd": 0.0569,
+    "log loss sd": 0.0109,
+    "bal. acc sd": 0.0016,
+    "AP(completion) sd": 0.0296
+   },
+   "Logistic, class-balanced": {
+    "Brier": 0.1737,
+    "AUC": 0.7945,
+    "log loss": 0.5135,
+    "bal. acc": 0.7113,
+    "AP(completion)": 0.4727,
+    "Brier sd": 0.0079,
+    "AUC sd": 0.0252,
+    "log loss sd": 0.0217,
+    "bal. acc sd": 0.0635,
+    "AP(completion) sd": 0.0344
+   }
+  },
+  "burn_rate": {
+   "SVR (RBF)": {
+    "MAE": 0.0478,
+    "RMSE": 0.0792,
+    "R\u00b2": 0.6679,
+    "MAE sd": 0.0009,
+    "RMSE sd": 0.0004,
+    "R\u00b2 sd": 0.0037
+   },
+   "Neural net (torch MLP)": {
+    "MAE": 0.0496,
+    "RMSE": 0.0803,
+    "R\u00b2": 0.6588,
+    "MAE sd": 0.0006,
+    "RMSE sd": 0.0011,
+    "R\u00b2 sd": 0.0094
+   },
+   "Ridge regression (shipped)": {
+    "MAE": 0.0498,
+    "RMSE": 0.077,
+    "R\u00b2": 0.6864,
+    "MAE sd": 0.0011,
+    "RMSE sd": 0.0009,
+    "R\u00b2 sd": 0.0074
+   },
+   "Ridge + interactions": {
+    "MAE": 0.0505,
+    "RMSE": 0.0808,
+    "R\u00b2": 0.6548,
+    "MAE sd": 0.0019,
+    "RMSE sd": 0.002,
+    "R\u00b2 sd": 0.0173
+   },
+   "Bagging (trees)": {
+    "MAE": 0.0582,
+    "RMSE": 0.0902,
+    "R\u00b2": 0.5697,
+    "MAE sd": 0.0028,
+    "RMSE sd": 0.002,
+    "R\u00b2 sd": 0.0191
+   },
+   "Random forest": {
+    "MAE": 0.0584,
+    "RMSE": 0.09,
+    "R\u00b2": 0.5715,
+    "MAE sd": 0.0028,
+    "RMSE sd": 0.0021,
+    "R\u00b2 sd": 0.0198
+   },
+   "Gradient boosting": {
+    "MAE": 0.0592,
+    "RMSE": 0.0887,
+    "R\u00b2": 0.5839,
+    "MAE sd": 0.0016,
+    "RMSE sd": 0.0008,
+    "R\u00b2 sd": 0.0077
+   },
+   "Hist. gradient boosting": {
+    "MAE": 0.0593,
+    "RMSE": 0.0876,
+    "R\u00b2": 0.5941,
+    "MAE sd": 0.0024,
+    "RMSE sd": 0.0029,
+    "R\u00b2 sd": 0.0269
+   },
+   "k-nearest neighbours": {
+    "MAE": 0.0597,
+    "RMSE": 0.0885,
+    "R\u00b2": 0.5862,
+    "MAE sd": 0.0007,
+    "RMSE sd": 0.0008,
+    "R\u00b2 sd": 0.0078
+   },
+   "Extra trees": {
+    "MAE": 0.0619,
+    "RMSE": 0.0976,
+    "R\u00b2": 0.4962,
+    "MAE sd": 0.0051,
+    "RMSE sd": 0.0033,
+    "R\u00b2 sd": 0.0338
+   },
+   "AdaBoost": {
+    "MAE": 0.0697,
+    "RMSE": 0.1015,
+    "R\u00b2": 0.4539,
+    "MAE sd": 0.003,
+    "RMSE sd": 0.0048,
+    "R\u00b2 sd": 0.0519
+   },
+   "Decision tree": {
+    "MAE": 0.0716,
+    "RMSE": 0.1042,
+    "R\u00b2": 0.4245,
+    "MAE sd": 0.008,
+    "RMSE sd": 0.0066,
+    "R\u00b2 sd": 0.0735
+   },
+   "Neural net (sklearn MLP)": {
+    "MAE": 0.0853,
+    "RMSE": 0.1163,
+    "R\u00b2": 0.2804,
+    "MAE sd": 0.0092,
+    "RMSE sd": 0.0103,
+    "R\u00b2 sd": 0.1247
+   },
+   "Naive (mean)": {
+    "MAE": 0.1088,
+    "RMSE": 0.14,
+    "R\u00b2": -0.037,
+    "MAE sd": 0.001,
+    "RMSE sd": 0.0009,
+    "R\u00b2 sd": 0.013
+   }
   }
  }
 }
