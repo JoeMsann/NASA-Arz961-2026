@@ -8,7 +8,13 @@
   "tier_label": "Direct fire-safety test",
   "fuel": "SIBAL fabric, 94 x 40.6 cm",
   "measures": "Large-scale flame spread in an uncrewed Cygnus",
-  "safety": "Shows how a bigger fire grows inside a real spacecraft"
+  "safety": "Shows how a bigger fire grows inside a real spacecraft",
+  "objective": "Measure how a large flame grows and spreads over a fabric sheet in microgravity, at a scale too risky for a crewed vehicle.",
+  "platform": "Cygnus cargo vehicle, uncrewed, after leaving the station",
+  "hardware": "Saffire flow duct and avionics bay",
+  "flown": "2016",
+  "sensors": "Two video cameras per sample; thermocouples; radiometers; oxygen and carbon dioxide sensors",
+  "details_basis": "Platform and sensors from NASA Saffire summaries; cameras from the source table. Verify."
  },
  {
   "id": "SAFFIRE-II",
@@ -19,7 +25,13 @@
   "tier_label": "Direct fire-safety test",
   "fuel": "Silicone, SIBAL, Nomex, PMMA samples",
   "measures": "Burn length in microgravity vs 1g for the same samples",
-  "safety": "Direct 0-g vs 1-g comparison of material flammability"
+  "safety": "Direct 0-g vs 1-g comparison of material flammability",
+  "objective": "Burn nine smaller samples of different materials and thicknesses and compare each with the same sample burned in 1 g.",
+  "platform": "Cygnus cargo vehicle, uncrewed, after leaving the station",
+  "hardware": "Saffire flow duct and avionics bay",
+  "flown": "2016",
+  "sensors": "Two video cameras per sample; thermocouples; radiometers; oxygen and carbon dioxide sensors",
+  "details_basis": "Platform and sensors from NASA Saffire summaries; cameras from the source table. Verify."
  },
  {
   "id": "SAFFIRE-III",
@@ -30,7 +42,13 @@
   "tier_label": "Direct fire-safety test",
   "fuel": "SIBAL fabric",
   "measures": "Flame spread at higher airflow (30 cm/s)",
-  "safety": "Ventilation speed effect on a large fire"
+  "safety": "Ventilation speed effect on a large fire",
+  "objective": "Repeat the Saffire-I large-sample burn at a higher airflow of 30 cm/s.",
+  "platform": "Cygnus cargo vehicle, uncrewed, after leaving the station",
+  "hardware": "Saffire flow duct and avionics bay",
+  "flown": "2017",
+  "sensors": "Two video cameras per sample; thermocouples; radiometers; oxygen and carbon dioxide sensors",
+  "details_basis": "Platform and sensors from NASA Saffire summaries; cameras from the source table. Verify."
  },
  {
   "id": "SAME",
@@ -41,7 +59,13 @@
   "tier_label": "Direct fire-safety test",
   "fuel": "Kapton, Teflon, silicone, lamp wick, Pyrell, DBP",
   "measures": "Smoke particle size and concentration from overheated materials",
-  "safety": "Sets what a spacecraft smoke detector must sense"
+  "safety": "Sets what a spacecraft smoke detector must sense",
+  "objective": "Characterise the smoke particles given off by overheated spacecraft materials, so smoke detectors can be designed for microgravity.",
+  "platform": "International Space Station",
+  "hardware": "Microgravity Science Glovebox (MSG)",
+  "flown": "2007 (SAME), 2010 (SAME-R)",
+  "sensors": "Particle number counter; DustTrak light-scattering mass monitor; ionization chamber; sample temperature; sample mass loss",
+  "details_basis": "Hardware from NASA SAME summaries: verify. Sensors from the columns of the reduced data sheet."
  },
  {
   "id": "BASS-II",
@@ -52,7 +76,13 @@
   "tier_label": "Flammability / suppression",
   "fuel": "PMMA films, rods, slabs; SIBAL; Nomex",
   "measures": "Burns in low-speed flow; O2, CO2, CO before and after",
-  "safety": "Material flammability and gas build-up in a sealed volume"
+  "safety": "Material flammability and gas build-up in a sealed volume",
+  "objective": "Burn and extinguish solid fuels in low-speed flow to find how material, thickness and flow set flammability and extinction.",
+  "platform": "International Space Station",
+  "hardware": "Microgravity Science Glovebox (MSG) with the fan-driven flow duct built for SPICE",
+  "flown": "2014",
+  "sensors": "Camera frames; radiometer; oxygen, carbon dioxide and carbon monoxide readings before and after each burn",
+  "details_basis": "Hardware from the challenge text. Sensors from the columns of the source table."
  },
  {
   "id": "BASS",
@@ -63,7 +93,13 @@
   "tier_label": "Flammability / suppression",
   "fuel": "SIBAL, PMMA spheres and slabs, wax",
   "measures": "Burns in low-speed flow with nitrogen suppression; crew observations",
-  "safety": "Suppression strategy and flow effects"
+  "safety": "Suppression strategy and flow effects",
+  "objective": "Burn solid fuels in low-speed flow and test nitrogen as a suppressant.",
+  "platform": "International Space Station",
+  "hardware": "Microgravity Science Glovebox (MSG) with the fan-driven flow duct built for SPICE",
+  "flown": "2012",
+  "sensors": "Video and still cameras; radiometer; nitrogen flow setting; oxygen and carbon dioxide readings; free-text crew observations",
+  "details_basis": "Hardware from the challenge text. Sensors from the columns of the source table."
  },
  {
   "id": "FLEX",
@@ -74,7 +110,13 @@
   "tier_label": "Flammability / suppression",
   "fuel": "Methanol and heptane droplets",
   "measures": "Extinction and burning rate vs O2, pressure, CO2, He",
-  "safety": "Limits of flammability and suppressant effectiveness"
+  "safety": "Limits of flammability and suppressant effectiveness",
+  "objective": "Find how oxygen, pressure and added carbon dioxide or helium change droplet burning and extinction, to rate fire suppressants.",
+  "platform": "International Space Station",
+  "hardware": "Combustion Integrated Rack (CIR) with the Multi-user Droplet Combustion Apparatus (MDCA)",
+  "flown": "2009 onward",
+  "sensors": "Backlit droplet imaging (droplet diameter, burning rate); flame imaging (extinction diameter); radiometers",
+  "details_basis": "Hardware from the challenge text. Measured quantities from the source table; instrument names from NASA summaries: verify."
  },
  {
   "id": "FLEX-2",
@@ -85,7 +127,13 @@
   "tier_label": "Flammability / suppression",
   "fuel": "Octane, heptane, decane, ethanol droplets and mixtures",
   "measures": "Planned test-condition matrix only",
-  "safety": "Extends FLEX to more fuels and up to 30% O2"
+  "safety": "Extends FLEX to more fuels and up to 30% O2",
+  "objective": "Extend FLEX to more fuels, fuel mixtures and slow convective flow.",
+  "platform": "International Space Station",
+  "hardware": "Combustion Integrated Rack (CIR) with the Multi-user Droplet Combustion Apparatus (MDCA)",
+  "flown": null,
+  "sensors": "Backlit droplet imaging; flame imaging; radiometers",
+  "details_basis": "Hardware from the challenge text. Sensors from NASA investigation summaries, not from a loaded table: verify."
  },
  {
   "id": "WSTF-1G",
@@ -96,7 +144,13 @@
   "tier_label": "Flammability / suppression",
   "fuel": "PET, PEI, silicone, polyimide, PEEK, PMMA, PVC, nylon and others",
   "measures": "Upward limiting oxygen index (ULOI) and maximum oxygen concentration (MOC) in 1 g",
-  "safety": "Ground-test thresholds that microgravity results are compared against"
+  "safety": "Ground-test thresholds that microgravity results are compared against",
+  "objective": "Find the lowest oxygen level at which each spacecraft material keeps burning upward in normal gravity.",
+  "platform": "Ground laboratory, White Sands Test Facility, 1 g",
+  "hardware": "Upward flame propagation test stand",
+  "flown": "2011 report",
+  "sensors": "Burn or no-burn result at each oxygen level; chemical or hot-wire igniter",
+  "details_basis": "From the transcribed tables of NTRS 20110008636: verify against the report."
  },
  {
   "id": "SPICE",
@@ -107,7 +161,13 @@
   "tier_label": "Fundamental flame science",
   "fuel": "Ethylene, propane, propylene jets",
   "measures": "Smoke-point flame length",
-  "safety": "When a flame starts releasing soot"
+  "safety": "When a flame starts releasing soot",
+  "objective": "Measure the flame length at which gas-jet flames start to release soot, in co-flowing air.",
+  "platform": "International Space Station",
+  "hardware": "Microgravity Science Glovebox (MSG) with the fan-driven flow duct built for SPICE",
+  "flown": "2009",
+  "sensors": "Imaging of flame length and width; radiometer; fuel and air flow rates",
+  "details_basis": "Hardware from the challenge text. Sensors from the columns of the source table."
  },
  {
   "id": "CFI",
@@ -118,7 +178,13 @@
   "tier_label": "Fundamental flame science",
   "fuel": "Droplets",
   "measures": "Low-temperature cool-flame burning",
-  "safety": "A flame can look out and still be burning"
+  "safety": "A flame can look out and still be burning",
+  "objective": "Study low-temperature 'cool flame' burning that carries on after the visible droplet flame has gone out.",
+  "platform": "International Space Station",
+  "hardware": "Combustion Integrated Rack (CIR) with the Multi-user Droplet Combustion Apparatus (MDCA)",
+  "flown": null,
+  "sensors": "Droplet and flame imaging; radiometers",
+  "details_basis": "Hardware from the challenge text. Sensors from NASA investigation summaries, not from a loaded table: verify."
  },
  {
   "id": "ACME-BRE",
@@ -129,7 +195,13 @@
   "tier_label": "Flammability / suppression",
   "fuel": "Gas burner emulating solids and liquids",
   "measures": "Flammability maps",
-  "safety": "Screens materials without burning them"
+  "safety": "Screens materials without burning them",
+  "objective": "Emulate burning solids and liquids with a gas burner, to map flammability in still atmospheres as a function of material properties.",
+  "platform": "International Space Station",
+  "hardware": "Combustion Integrated Rack (CIR) with the modular ACME hardware",
+  "flown": null,
+  "sensors": "Cameras; radiometers; burner heat-flux and temperature sensors",
+  "details_basis": "Hardware from the challenge text. Sensors from NASA investigation summaries, not from a loaded table: verify."
  },
  {
   "id": "ACME-CLD",
@@ -140,7 +212,13 @@
   "tier_label": "Fundamental flame science",
   "fuel": "Gas jets",
   "measures": "Soot and stability benchmarks",
-  "safety": "Model validation"
+  "safety": "Model validation",
+  "objective": "Provide benchmark soot and stability data for coflow gas-jet flames, to validate combustion models.",
+  "platform": "International Space Station",
+  "hardware": "Combustion Integrated Rack (CIR) with the modular ACME hardware",
+  "flown": null,
+  "sensors": "Cameras; radiometers",
+  "details_basis": "Hardware from the challenge text. Sensors from NASA investigation summaries, not from a loaded table: verify."
  },
  {
   "id": "ACME-S-FLAME",
@@ -151,7 +229,13 @@
   "tier_label": "Fundamental flame science",
   "fuel": "Gas, spherical burner",
   "measures": "Flame growth and extinction",
-  "safety": "Model validation"
+  "safety": "Model validation",
+  "objective": "Follow how spherical gas flames grow and extinguish, to validate combustion models.",
+  "platform": "International Space Station",
+  "hardware": "Combustion Integrated Rack (CIR) with the modular ACME hardware",
+  "flown": null,
+  "sensors": "Cameras; radiometers",
+  "details_basis": "Hardware from the challenge text. Sensors from NASA investigation summaries, not from a loaded table: verify."
  },
  {
   "id": "ACME-FLAME-DESIGN",
@@ -162,6 +246,46 @@
   "tier_label": "Fundamental flame science",
   "fuel": "Gas, spherical burner",
   "measures": "Soot inception limits",
-  "safety": "Model validation"
+  "safety": "Model validation",
+  "objective": "Find the limits at which spherical gas flames start to form soot.",
+  "platform": "International Space Station",
+  "hardware": "Combustion Integrated Rack (CIR) with the modular ACME hardware",
+  "flown": null,
+  "sensors": "Cameras; radiometers",
+  "details_basis": "Hardware from the challenge text. Sensors from NASA investigation summaries, not from a loaded table: verify."
+ },
+ {
+  "id": "ACME-CFI-G",
+  "name": "Cool Flames Investigation with Gases",
+  "psi": null,
+  "doi": null,
+  "tier": 3,
+  "tier_label": "Fundamental flame science",
+  "fuel": "Flammable gas such as propane in the chamber; an oxygen-nitrogen mixture flows from a spherical burner (inside-out flame)",
+  "measures": "Cool-flame behaviour of gaseous fuels at oxygen levels up to 85%",
+  "safety": "Highest oxygen concentration flown in microgravity",
+  "objective": "Study cool flames of gaseous fuels, with burner oxygen up to 85%.",
+  "platform": "International Space Station",
+  "hardware": "Combustion Integrated Rack (CIR) with the modular ACME hardware",
+  "flown": null,
+  "sensors": "Cameras; radiometers",
+  "details_basis": "Everything here is from the challenge text except sensors (NASA summaries: verify). PSI id not confirmed, no table loaded."
+ },
+ {
+  "id": "ACME-E-FIELD",
+  "name": "Electric-Field Effects on Laminar Diffusion Flames",
+  "psi": null,
+  "doi": null,
+  "tier": 3,
+  "tier_label": "Fundamental flame science",
+  "fuel": "Gas jets",
+  "measures": "Flame response to an electric field acting on the ions in the flame",
+  "safety": "The electric field mimics partial gravity: the only stand-in for Moon or Mars gravity in PSI",
+  "objective": "Measure how an electric field shapes gas-jet flames through the ions they contain.",
+  "platform": "International Space Station",
+  "hardware": "Combustion Integrated Rack (CIR) with the modular ACME hardware",
+  "flown": null,
+  "sensors": "Cameras; radiometers; electric field and ion current",
+  "details_basis": "Everything here is from the challenge text except sensors (NASA summaries: verify). PSI id not confirmed, no table loaded."
  }
 ]
