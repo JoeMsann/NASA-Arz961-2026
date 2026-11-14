@@ -40,6 +40,32 @@ def run_sql(query: str) -> dict:
     return {"columns": cols, "rows": [list(r) for r in rows[:MAX_ROWS]], "truncated": len(rows) > MAX_ROWS}
 
 
+# What the model is shown is smaller than what the tools return to the interface. Groq's free tier allows a few thousand
+# input tokens per minute, and every tool result is sent back to the model on each later step of the same answer.
+CELL, SQL_CHARS, SEARCH_TEXT = 220, 6000, 320
+
+
+def _clip(s, n):
+    return s if not isinstance(s, str) or len(s) <= n else s[:n].rstrip() + "…"
+
+
+def _fit_sql(res: dict) -> dict:
+    """Clip long text cells, then drop rows from the end until the result fits the budget. Says so when it does."""
+    if "rows" not in res:
+        return res
+    rows, size, kept = [[_clip(c, CELL) for c in r] for r in res["rows"]], 0, []
+    for r in rows:
+        size += len(json.dumps(r))
+        if size > SQL_CHARS and kept:
+            break
+        kept.append(r)
+    out = {"columns": res["columns"], "rows": kept, "truncated": res["truncated"] or len(kept) < len(rows)}
+    if out["truncated"]:
+        out["note"] = (f"Showing {len(kept)} rows; more matched. Do not report this as the total: "
+                       "use COUNT(*) or GROUP BY for totals, or narrow the WHERE clause.")
+    return out
+
+
 _STOP = set("the a an of in on for to and or is are was were does do did how what which when why with by from at as it its be can above below than ran happened".split())
 
 
@@ -100,7 +126,7 @@ def sql_query(query: str) -> str:
     """Run one read-only SQLite SELECT over the unified NASA combustion test table. Use for counts, filters,
     ranges and comparisons of test conditions and outcomes. Always select test_id, investigation and psi_id
     so results can be cited. Returns JSON with columns and rows (max 40)."""
-    return json.dumps(run_sql(query))
+    return json.dumps(_fit_sql(run_sql(query)))
 
 
 @tool
@@ -108,7 +134,9 @@ def search_reports(query: str) -> str:
     """Search investigation descriptions, crew test notes and the NASA Technical Reports Server for what
     happened and why. Use for explanations, mechanisms and background. Returns JSON results, each with a
     `ref` (PSI id or NTRS id) and `url` to cite."""
-    return json.dumps(search_all(query))
+    res = search_all(query)
+    res["results"] = [{**r, "text": _clip(r["text"], SEARCH_TEXT)} for r in res["results"]]
+    return json.dumps(res)
 
 
 TOOLS = [sql_query, search_reports]

@@ -2,6 +2,7 @@
 
   cd services/agent && python test_graph.py
 """
+import json
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 import tools
@@ -52,3 +53,22 @@ if __name__ == "__main__":
     hw = tools.run_sql("select id, psi, hardware from investigations where hardware like '%MDCA%' order by id")
     assert [r[0] for r in hw["rows"]] == ["CFI", "FLEX", "FLEX-2"], hw
     print("fallback citations, hardware search and investigations columns ok")
+
+    # Seen in a live run: the model attached one invented DOI to every PSI id. Links are rewritten from the database.
+    def bad_links(messages):
+        m = scripted(messages)
+        return m if m.tool_calls else AIMessage("FLEX [PSI-69](https://doi.org/10.2514/6.2014-1000), BASS [PSI-26](https://doi.org/10.2514/6.2014-1000), "
+                                                "see [a paper](https://example.org/made-up).")
+    out = run_chat(build_graph(RunnableLambda(bad_links)), [Turn(role="user", content="Which tests ran above 30% O2?")])
+    assert "[PSI-69](https://doi.org/10.60555/mbq8-0451)" in out["answer"], out["answer"]
+    assert "10.2514" not in out["answer"] and "example.org" not in out["answer"] and "BASS PSI-26," in out["answer"], out["answer"]
+    assert "3 links" in out["warning"], out["warning"]
+
+    # What the model sees is clipped to fit a small token budget, and says when rows were dropped.
+    full = tools.run_sql("select test_id, notes from tests where investigation = 'BASS'")
+    fit = tools._fit_sql(full)
+    assert len(json.dumps(fit)) < tools.SQL_CHARS + 600 and fit["truncated"] and "COUNT(*)" in fit["note"]
+    assert max(len(str(c)) for r in fit["rows"] for c in r) <= tools.CELL + 1
+    small = tools._fit_sql(tools.run_sql("select count(*) from tests"))
+    assert small["rows"][0][0] > 900 and not small["truncated"] and "note" not in small
+    print("link repair and result clipping ok")
