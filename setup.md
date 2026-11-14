@@ -9,12 +9,13 @@ cp .env.example .env          # add your free Groq key: https://console.groq.com
 docker compose up --build     # http://localhost:3000
 ```
 
-Without Docker (three terminals):
+Without Docker (four terminals):
 
 ```bash
-pip install -r services/ml/requirements.txt -r services/agent/requirements.txt
+pip install -r services/ml/requirements.txt -r services/agent/requirements.txt -r services/mcp/requirements.txt
 cd services/ml    && uvicorn app:app --port 8001
 cd services/agent && GROQ_API_KEY=... uvicorn app:app --port 8002
+cd services/mcp   && uvicorn app:app --port 8003      # optional: MCP server for chatbots
 cd web && npm install && npm run dev
 ```
 
@@ -27,6 +28,8 @@ Rebuild the table and retrain: `docker compose run --rm pipeline` (or `python pi
 | `web` | 3000 | Next.js 15 + three.js interface. Proxies `/api/svc/ml/*` and `/api/svc/agent/*` to the services |
 | `ml` | 8001 | Unified table API, habitat navigator (coverage + ranking), flame predictor |
 | `agent` | 8002 | Ask PSI: LangGraph agent on Groq with two tools, plus a no-LLM evidence search |
+| `mcp` | 8003 | MCP server at `/mcp`: any MCP-capable chatbot can call the table, navigator, compare and predictor as tools. Forwards to `ml` and `agent` |
+| `tunnel` | – | Optional (`--profile tunnel`): temporary public address for `mcp`, for hosted chatbots |
 | `pipeline` | – | One-off job: builds `data/build/` from `data/raw/` and trains the models |
 
 ## Features
@@ -39,6 +42,7 @@ Rebuild the table and retrain: `docker compose run --rm pipeline` (or `python pi
 | 4. Compare two investigations | Compare tab, `GET /compare` on `ml` | Working. Side-by-side table, shared and differing points, both on one oxygen-pressure map. See `docs/compare-and-ask-psi.md` |
 | 5. Flammability predictor | Predictor tab | FLEX self-extinction and burn-rate models. No CFI-G ignition classifier: that data was not available. Flame simulation: the predicted burn drawn to scale in real time (d² law, FLEX extinction diameters, published standoff ratios). See `docs/flame-simulation.md` |
 | 7. Earth benefits | Last tab | Three sourced cards |
+| MCP server | `services/mcp` | Ten read-only tools, tested with an MCP client against the running services. Image not built and no hosted chatbot connected yet. See `docs/mcp-server.md` |
 
 ## Unified table
 

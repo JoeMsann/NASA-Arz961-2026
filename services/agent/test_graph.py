@@ -26,6 +26,7 @@ if __name__ == "__main__":
     assert "error" in tools.run_sql("delete from tests")
     assert "error" in tools.run_sql("select 1; drop table tests")
     assert tools.run_sql("select count(*) from tests")["rows"][0][0] > 900
+    assert "error" in tools.run_sql("with recursive n(x) as (select 1 union all select x + 1 from n) select count(*) from n")  # stopped by the time limit
 
     out = run_chat(build_graph(RunnableLambda(scripted)), [Turn(role="user", content="Which tests ran above 30% O2, what happened?")])
     assert [s["tool"] for s in out["steps"]] == ["sql_query", "search_reports"], out["steps"]
