@@ -1,0 +1,56 @@
+[
+ {
+  "id": "earth",
+  "name": "Earth",
+  "o2_pct": 20.9,
+  "pressure_psia": 14.7,
+  "gravity_g": 1.0,
+  "basis": "Sea-level air",
+  "blurb": "Hot gas rises, so flames stretch into a teardrop and pull in fresh air. Every ground flammability test happens here."
+ },
+ {
+  "id": "iss",
+  "name": "International Space Station",
+  "o2_pct": 21.0,
+  "pressure_psia": 14.7,
+  "gravity_g": 0.0,
+  "basis": "Earth-like cabin air",
+  "blurb": "No buoyancy. Flames turn round, dim and slow, and feed on oxygen by diffusion and cabin ventilation. Almost all NASA combustion data was taken here."
+ },
+ {
+  "id": "suit",
+  "name": "Spacesuit (EVA)",
+  "o2_pct": 100.0,
+  "pressure_psia": 4.3,
+  "gravity_g": 0.0,
+  "basis": "Team scenario: pure oxygen at 4.3 psi",
+  "blurb": "Pure oxygen at low pressure. Far outside anything in the microgravity tables."
+ },
+ {
+  "id": "moon_base",
+  "name": "Moon base",
+  "o2_pct": 30.0,
+  "pressure_psia": 10.2,
+  "gravity_g": 0.166,
+  "basis": "Team scenario: 30% O2 at 10.2 psi",
+  "blurb": "Richer oxygen at lower pressure to shorten spacewalk preparation. One-sixth gravity sits between the two regimes that were tested."
+ },
+ {
+  "id": "rover",
+  "name": "Pressurized rover",
+  "o2_pct": 34.0,
+  "pressure_psia": 8.2,
+  "gravity_g": 0.166,
+  "basis": "Assumed NASA exploration atmosphere (8.2 psi, 34% O2). Verify before citing.",
+  "blurb": "Small sealed cabin with frequent spacewalks. Higher oxygen fraction than any habitat flown so far."
+ },
+ {
+  "id": "mars",
+  "name": "Mars habitat",
+  "o2_pct": 34.0,
+  "pressure_psia": 8.2,
+  "gravity_g": 0.38,
+  "basis": "Assumed NASA exploration atmosphere (8.2 psi, 34% O2). Verify before citing.",
+  "blurb": "About three-eighths gravity. No rescue and no resupply for months, so prevention matters most."
+ }
+]
