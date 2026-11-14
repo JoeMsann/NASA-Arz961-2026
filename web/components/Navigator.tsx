@@ -20,32 +20,32 @@ export default function Navigator({ env, atmos, nav, onAsk }: { env: Env; atmos:
   return (
     <div className="grid">
       <div className={`card banner ${nav.covered ? "ok" : "no"}`}>
-        <h2>{nav.covered ? `Tested near ${env.name} conditions` : `No data here: ${env.name} conditions were never flown`}</h2>
+        <h3>{nav.covered ? `Tested near ${env.name} conditions` : `No data here: ${env.name} conditions were never flown`}</h3>
         <div>{nav.covered
           ? <>{nav.near_count} flight tests lie within range. {missing.length > 0 && <b>None of them cover: {missing.join(", ")}.</b>}</>
           : <>The closest flight test is {fmt(nav.nearest_distance)} steps away (1 step = 5 O₂ points or 2 psi). Anything said about this environment is extrapolation.</>}</div>
-        <div className="note" style={{ marginTop: 6 }}>{nav.rule} {nav.gravity_note}</div>
-        <div className="row" style={{ marginTop: 10 }}>
+        <div className="note gap-top">{nav.rule} {nav.gravity_note}</div>
+        <div className="row gap-top">
           {phases.map(([p, n]) => <span key={p} className={`tag ${n ? "" : "tno"}`}>{p}: {n}</span>)}
           <button className="ghost" onClick={() => onAsk(`For an atmosphere of ${fmt(atmos.o2_pct)}% O2 at ${fmt(atmos.pressure_psia)} psi, which tests are closest and what happened in them? What is missing?`)}>Ask PSI about this environment</button>
         </div>
       </div>
 
       <div className="card">
-        <h2>Coverage map</h2>
+        <h3>Coverage map</h3>
         <p className="note">Every record that lists oxygen and pressure. The ring marks {env.name}. Empty space around it means no evidence.</p>
-        <div style={{ height: 430 }}>
+        <div className="chart">
           <ResponsiveContainer>
-            <ScatterChart margin={{ top: 10, right: 24, bottom: 34, left: 8 }}>
+            <ScatterChart margin={{ top: 8, right: 12, bottom: 28, left: 0 }}>
               <CartesianGrid stroke="#1e2838" />
               <XAxis type="number" dataKey="o2" domain={[10, 100]} ticks={[10, 20, 30, 40, 50, 60, 70, 80, 90, 100]} {...axis} label={{ value: "Oxygen (%)", position: "bottom", fill: "#93a1b8", fontSize: 12 }} />
-              <YAxis type="number" dataKey="p" domain={[0, 46]} {...axis} label={{ value: "Pressure (psi)", angle: -90, position: "insideLeft", fill: "#93a1b8", fontSize: 12 }} />
+              <YAxis type="number" dataKey="p" domain={[0, 46]} width={46} {...axis} label={{ value: "Pressure (psi)", angle: -90, position: "insideLeft", fill: "#93a1b8", fontSize: 12 }} />
               <ZAxis range={[40, 40]} />
               <Tooltip cursor={{ stroke: "#3a4a63" }} content={({ payload }) => {
                 const r = payload?.[0]?.payload; if (!r) return null;
                 return <div className="card tip"><b>{r.id}</b> · {r.inv}<br />{r.fuel}<br />O₂ {fmt(r.o2)}% · {fmt(r.p)} psi{r.outcome ? <><br />{OUTCOME[r.outcome] ?? r.outcome}</> : null}</div>;
               }} />
-              <Legend verticalAlign="top" wrapperStyle={{ fontSize: 13 }} />
+              <Legend verticalAlign="top" wrapperStyle={{ fontSize: 12, paddingBottom: 8 }} />
               {series.map((s) => <Scatter key={s.name} name={s.name} data={s.data} fill={s.fill} shape={s.shape} fillOpacity={0.7} isAnimationActive={false} />)}
               <Scatter name={env.name} data={here} isAnimationActive={false} fill={nav.covered ? "#4cd28a" : "#ff6b6b"}
                 shape={(p: any) => <g><circle cx={p.cx} cy={p.cy} r={13} fill="none" stroke={p.fill} strokeWidth={3} /><circle cx={p.cx} cy={p.cy} r={3.5} fill={p.fill} /></g>} />
@@ -55,9 +55,9 @@ export default function Navigator({ env, atmos, nav, onAsk }: { env: Env; atmos:
       </div>
 
       <div className="card">
-        <h2>Investigations ranked for {env.name}</h2>
+        <h3>Investigations ranked for {env.name}</h3>
         <p className="note">Order: closest test conditions first, then fire-safety class. Distance 0 means a test ran at these exact conditions.</p>
-        <div className="scroll">
+        <div className="scroll scroll-md">
           <table>
             <thead><tr><th>#</th><th>Investigation</th><th>Class</th><th>Distance</th><th>Tests in range</th><th>Closest test</th><th>Why it matters</th></tr></thead>
             <tbody>
@@ -79,14 +79,14 @@ export default function Navigator({ env, atmos, nav, onAsk }: { env: Env; atmos:
       </div>
 
       <div className="card">
-        <h2>Ground-test check at {fmt(atmos.o2_pct)}% oxygen</h2>
+        <h3>Ground-test check at {fmt(atmos.o2_pct)}% oxygen</h3>
         <p><b>{th.burn_count} of {th.total}</b> 1-g material records keep burning upward at or below this oxygen level.</p>
         <p className="note">{th.note}</p>
-        <div className="grid g2">
-          <div><h3>Burn at this oxygen level</h3>
+        <div className="grid">
+          <div><h4>Burn at this oxygen level</h4>
             {th.burns.length ? <ul className="plain">{th.burns.map((t: any) => <li key={t.test_id}>{t.fuel} <span className="note">burns from {fmt(t.o2_pct)}% · {fmt(t.pressure_psia)} psi</span></li>)}</ul> : <p className="note">None in this dataset.</p>}
           </div>
-          <div><h3>Next to become flammable</h3>
+          <div><h4>Next to become flammable</h4>
             {th.resists.length ? <ul className="plain">{th.resists.map((t: any) => <li key={t.test_id}>{t.fuel} <span className="note">burns from {fmt(t.o2_pct)}% · {fmt(t.pressure_psia)} psi</span></li>)}</ul> : <p className="note">Every tested material burns at this level.</p>}
           </div>
         </div>

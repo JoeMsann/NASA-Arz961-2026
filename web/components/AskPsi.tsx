@@ -49,9 +49,8 @@ export default function AskPsi({ seed, onSeedUsed }: { seed: string; onSeedUsed:
   return (
     <div className="grid">
       <div className="card">
-        <h2>Ask PSI</h2>
         <p className="note">An agent with two tools: SQL over the unified test table, and search over investigation notes and NASA technical reports. Each answer shows the tool calls behind it.</p>
-        <div className="row" style={{ marginTop: 8 }}>{EXAMPLES.map((e) => <button key={e} className="ghost" onClick={() => send(e)}>{e}</button>)}</div>
+        <div className="row gap-top">{EXAMPLES.map((e) => <button key={e} className="ghost" onClick={() => send(e)}>{e}</button>)}</div>
       </div>
 
       {msgs.map((m, i) => m.role === "user" ? <div key={i} className="msg me">{m.content}</div> : (
@@ -60,7 +59,7 @@ export default function AskPsi({ seed, onSeedUsed }: { seed: string; onSeedUsed:
           {m.warning && <div className="warnline">{m.warning}</div>}
           {m.content && <div>{rich(m.content)}</div>}
           {m.citations && m.citations.length > 0 && (
-            <div className="row" style={{ marginTop: 8 }}>
+            <div className="row gap-top">
               <span className="note">{m.citations.every((c) => c.source === "tools") ? "Records the tools returned:" : "Cited:"}</span>
               {m.citations.map((c) => c.url
                 ? <a key={c.ref} className="tag" href={c.url} target="_blank" rel="noreferrer">{c.ref} · {c.title}</a>

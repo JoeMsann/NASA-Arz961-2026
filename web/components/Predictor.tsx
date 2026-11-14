@@ -25,11 +25,11 @@ export default function Predictor({ env, atmos }: { env: Env; atmos: Atmos }) {
   const s = out?.scores;
 
   return (
-    <div className="grid g2">
+    <div className="grid">
       <div className="grid">
         <div className="card">
-          <h2>Small liquid-fuel fire in {env.name}</h2>
-          <p className="note">Uses the oxygen and pressure set above ({fmt(atmos.o2_pct)}% O₂, {fmt(atmos.pressure_psia)} psi). {out?.scope}</p>
+          <h3>Small liquid-fuel fire in {env.name}</h3>
+          <p className="note">Uses the oxygen and pressure set for the selected place ({fmt(atmos.o2_pct)}% O₂, {fmt(atmos.pressure_psia)} psi). {out?.scope}</p>
           <label>Fuel</label>
           <select value={x.fuel} onChange={(e) => setX({ ...x, fuel: e.target.value })}><option>Heptane</option><option>Methanol</option></select>
           {slider("co2_pct", "CO₂ added (suppressant)", 0, 70, 1, "%")}

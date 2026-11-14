@@ -45,13 +45,13 @@ const ITEMS = [
 
 export default function EarthBenefits() {
   return (
-    <div className="grid g3">
+    <div className="grid">
       {ITEMS.map((it) => (
         <article key={it.title} className="card">
           <span className="tag">{it.tag}</span>
-          <h2 style={{ marginTop: 8 }}>{it.title}</h2>
+          <h3 className="gap-top">{it.title}</h3>
           {it.body.map((p, i) => <p key={i}>{p}</p>)}
-          <h3>Sources</h3>
+          <h4>Sources</h4>
           <ul className="plain">{it.links.map(([label, url]) => <li key={url}><a href={url} target="_blank" rel="noreferrer">{label}</a></li>)}</ul>
         </article>
       ))}
