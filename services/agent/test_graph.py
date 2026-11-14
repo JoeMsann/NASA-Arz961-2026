@@ -57,7 +57,7 @@ if __name__ == "__main__":
     # Seen in a live run: the model attached one invented DOI to every PSI id. Links are rewritten from the database.
     def bad_links(messages):
         m = scripted(messages)
-        return m if m.tool_calls else AIMessage("FLEX [PSI-69](https://doi.org/10.2514/6.2014-1000), BASS [PSI-26](https://doi.org/10.2514/6.2014-1000), "
+        return m if m.tool_calls else AIMessage("FLEX [PSI-69](https://doi.org/10.2514/6.2014-1000), BASS [PSI-26](PSI-26), "
                                                 "see [a paper](https://example.org/made-up).")
     out = run_chat(build_graph(RunnableLambda(bad_links)), [Turn(role="user", content="Which tests ran above 30% O2?")])
     assert "[PSI-69](https://doi.org/10.60555/mbq8-0451)" in out["answer"], out["answer"]

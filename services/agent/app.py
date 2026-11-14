@@ -51,7 +51,7 @@ def citations(text: str, steps: list[dict]) -> list[dict]:
     return list(found.values())
 
 
-_LINK = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
+_LINK = re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")   # any target: the model also writes [PSI-26](PSI-26) when there is no DOI
 
 
 def fix_links(text: str, steps: list[dict]) -> tuple[str, int]:
@@ -74,7 +74,7 @@ def fix_links(text: str, steps: list[dict]) -> tuple[str, int]:
                 return m.group(0)
             changed += 1
             return f"[{label}]({good})" if good else label
-        if url.rstrip("/.,") in seen:
+        if url.startswith("http") and url.rstrip("/.,") in seen:
             return m.group(0)
         changed += 1
         return label
@@ -125,15 +125,15 @@ def chat(body: ChatIn):
     if body.messages[-1].role != "user":
         raise HTTPException(400, "Last message must come from the user.")
     g = graph()
-    for attempt in (1, 2):
+    for attempt in (1, 2, 3):
         try:
             return run_chat(g, body.messages)
         except HTTPException:
             raise
         except Exception as e:
             msg = str(e)
-            if "tool_use_failed" in msg and attempt == 1:
-                continue            # the model emitted a malformed tool call; one fresh run usually succeeds
+            if "tool_use_failed" in msg and attempt < 3:
+                continue            # the model emitted a malformed tool call (wrong tool or argument name); run again
             if "rate_limit" in msg or "Request too large" in msg or "429" in msg or "413" in msg:
                 raise HTTPException(503, "The language model's rate limit was reached. Wait a minute and ask again, or ask a narrower question.")
             raise HTTPException(502, f"Agent run failed: {type(e).__name__}: {msg[:300]}")
