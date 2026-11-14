@@ -311,6 +311,8 @@ def predict(i: PredictIn):
         raise HTTPException(400, f"fuel must be one of {list(MODELS['domain'])}")
     f = {"o2": i.o2_pct / 100, "p_atm": i.pressure_psia / PSI_PER_ATM, "co2": i.co2_pct / 100, "he": i.he_pct / 100, "d0": i.d0_mm}
     x = [1.0 if i.fuel == "Heptane" else 0.0] + [f[k] for k in MODELS["features"][1:]]
+    # extinction model inputs: products of features (pairwise interactions); plain features for older models.json files
+    x_ext = [math.prod(x[j] for j in t) for t in MODELS.get("extinction_terms", [[j] for j in range(len(x))])]
     dom = MODELS["domain"][i.fuel]
     label = {"o2": ("oxygen", 100, "%"), "p_atm": ("pressure", PSI_PER_ATM, "psi"), "co2": ("CO2", 100, "%"),
              "he": ("helium", 100, "%"), "d0": ("droplet diameter", 1, "mm")}
@@ -322,7 +324,7 @@ def predict(i: PredictIn):
     near = sorted(rows, key=lambda r: sum(((r[k] - f[k]) / sc[k]) ** 2 for k in sc))[:5]
     pairs = [t for t in TESTS if t["investigation"] == "SAFFIRE-II"]
     return {
-        "extinction": _ensemble(MODELS["extinction"], x, True), "burn_rate": _ensemble(MODELS["burn_rate"], x, False),
+        "extinction": _ensemble(MODELS["extinction"], x_ext, True), "burn_rate": _ensemble(MODELS["burn_rate"], x, False),
         "outside": outside, "extrapolating": bool(outside),
         "nearest": [{"id": r["id"], "o2_pct": round(r["o2"] * 100, 1), "pressure_psia": round(r["p_atm"] * PSI_PER_ATM, 1),
                      "co2_pct": round(r["co2"] * 100), "he_pct": round(r["he"] * 100), "d0_mm": r["d0"], "k": r["k"], "end": r["end"]} for r in near],

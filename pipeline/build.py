@@ -12,6 +12,7 @@ One mapper per source file. A new CSV can also be added without code:
 run pipeline/llm_map.py to draft data/mappings/<name>.json with Groq, review it, rebuild.
 """
 import csv, json, pathlib, re, sqlite3
+from itertools import combinations_with_replacement
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
@@ -208,6 +209,38 @@ def from_mappings():
 
 # ------------------------------------------------------------------ models (FLEX)
 FEATS = ["heptane", "o2", "p_atm", "co2", "he", "d0"]
+# Extinction model = logistic regression on the features plus all pairwise products (O2 x pressure, O2 x diameter, ...).
+# It won the 16-algorithm comparison in notebooks/train_models.ipynb (AUC 0.88 vs 0.81 for plain logistic).
+# TERMS lists the feature indices multiplied together for each model input, in sklearn PolynomialFeatures order;
+# services/ml/app.py rebuilds the same inputs from models.json["extinction_terms"].
+TERMS = [list(t) for deg in (1, 2) for t in combinations_with_replacement(range(len(FEATS)), deg)]
+EXT_CS = [0.03, 0.1, 0.3, 1.0]          # regularisation strengths tried for the extinction model
+
+
+def expand(X, terms=TERMS):
+    X = np.asarray(X, float)
+    return np.column_stack([X[:, t].prod(axis=1) for t in terms])
+
+
+def term_names(terms=TERMS):
+    return [" x ".join(FEATS[i] for i in t) if len(set(t)) > 1 else (FEATS[t[0]] + ("^2" if len(t) > 1 else "")) for t in terms]
+
+
+def ext_pipe(C):
+    return make_pipeline(StandardScaler(), LogisticRegression(C=C, max_iter=5000))
+
+
+def pick_c(Xe, y, groups, n_splits=3):
+    # choose C by grouped CV Brier score (Xe = already-expanded features)
+    best = None
+    for C in EXT_CS:
+        p = np.zeros(len(y))
+        for tr, te in GroupKFold(n_splits=n_splits).split(Xe, y, groups):
+            p[te] = ext_pipe(C).fit(Xe[tr], y[tr]).predict_proba(Xe[te])[:, 1]
+        s = brier_score_loss(y, p)
+        if best is None or s < best[0]:
+            best = (s, C)
+    return best[1]
 
 
 def flex_frame():
@@ -232,9 +265,10 @@ def cv(X, y, groups, kind):
     for tr, te in GroupKFold(n_splits=5).split(X, y, groups):
         m = gb(kind).fit(X[tr], y[tr])
         naive[te] = y[tr].mean()
-        if kind == "clf":
+        if kind == "clf":                   # nested: C is chosen inside the training fold only
             pred[te] = m.predict_proba(X[te])[:, 1]
-            base[te] = make_pipeline(StandardScaler(), LogisticRegression(max_iter=1000)).fit(X[tr], y[tr]).predict_proba(X[te])[:, 1]
+            Xe = expand(X)
+            base[te] = ext_pipe(pick_c(Xe[tr], y[tr], groups[tr])).fit(Xe[tr], y[tr]).predict_proba(Xe[te])[:, 1]
         else:
             pred[te] = m.predict(X[te])
             base[te] = make_pipeline(StandardScaler(), Ridge()).fit(X[tr], y[tr]).predict(X[te])
@@ -245,33 +279,39 @@ def cv(X, y, groups, kind):
             "gbm_r2": r2_score(y, pred), "gbm_mae": mean_absolute_error(y, pred), "naive_mae": mean_absolute_error(y, naive)}
 
 
-def boot(X, y, kind):
+def boot(X, y, kind, C=1.0):
     rs, members = np.random.RandomState(RNG), []
     while len(members) < N_BOOT:
         idx = rs.randint(0, len(y), len(y))
         if kind == "clf" and len(set(y[idx])) < 2:
             continue
         sc = StandardScaler().fit(X[idx])
-        est = (LogisticRegression(max_iter=1000) if kind == "clf" else Ridge()).fit(sc.transform(X[idx]), y[idx])
+        sc.scale_[sc.scale_ == 0] = 1.0     # a term can be constant in a resample
+        est = (LogisticRegression(C=C, max_iter=5000) if kind == "clf" else Ridge()).fit(sc.transform(X[idx]), y[idx])
         members.append({"mean": sc.mean_.tolist(), "scale": sc.scale_.tolist(), "coef": np.ravel(est.coef_).tolist(),
                         "b": float(np.ravel(est.intercept_)[0])})
     return members
 
 
-def train():
-    d = flex_frame().dropna(subset=FEATS)
+def train(d=None):
+    """d: a FLEX-style frame (default: the PSI-69 table). The notebook passes its own frame, e.g. with FLEX-2 runs merged."""
+    d = (flex_frame() if d is None else d).dropna(subset=FEATS)
     c = d[d.end.isin(["Extinction", "Completion"])]          # droplet break-up says nothing about flammability
     r = d.dropna(subset=["k"])
     Xc, yc = c[FEATS].to_numpy(float), (c.end == "Extinction").to_numpy(int)
     Xr, yr = r[FEATS].to_numpy(float), r.k.to_numpy(float)
-    models = {"features": FEATS, "extinction": boot(Xc, yc, "clf"), "burn_rate": boot(Xr, yr, "reg"),
+    C = pick_c(expand(Xc), yc, c.date.to_numpy())
+    models = {"features": FEATS, "extinction_terms": TERMS, "extinction_term_names": term_names(), "extinction_C": C,
+              "extinction": boot(expand(Xc), yc, "clf", C), "burn_rate": boot(Xr, yr, "reg"),
               "domain": {fuel: {f: [float(g[f].min()), float(g[f].max())] for f in FEATS[1:]} for fuel, g in d.groupby("fuel")},
               "scale": {f: float(d[f].std()) for f in FEATS[1:]},
               "train_rows": d[["id", "fuel", "o2", "p_atm", "co2", "he", "d0", "k", "end"]].replace({np.nan: None}).to_dict("records")}
     report = {"extinction": cv(Xc, yc, c.date.to_numpy(), "clf"), "burn_rate": cv(Xr, yr, r.date.to_numpy(), "reg"),
               "excluded_disruption_runs": int((d.end == "Disruption").sum()),
               "validation": "5-fold GroupKFold grouped by test date, so same-day repeats never straddle train and test",
-              "shipped": "Logistic regression and ridge regression. Gradient boosting was tested and scored lower out-of-fold."}
+              "shipped": "Extinction: logistic regression with pairwise interaction terms. Burning rate: ridge regression. "
+                         "Both beat 14 alternatives (random forest, bagging, boosting, SVM, kNN, neural nets) out-of-fold.",
+              "extinction_C": C}
     return models, report
 
 

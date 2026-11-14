@@ -1,0 +1,8 @@
+numpy<2.5
+pandas
+scikit-learn
+matplotlib
+jupyterlab
+nbconvert
+ipykernel
+# torch is optional (the notebook skips torch models without it); the Docker image installs the CPU build
