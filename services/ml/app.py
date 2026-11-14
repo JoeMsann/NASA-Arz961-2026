@@ -2,7 +2,7 @@
 
 Loads artifacts written by pipeline/build.py (DATA_DIR, default ./data/build).
 """
-import csv, io, json, math, os, pathlib, sqlite3
+import csv, io, json, math, os, pathlib, re, sqlite3
 import numpy as np
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import PlainTextResponse
@@ -147,6 +147,156 @@ def navigator(e: Env):
                           "note": "Upward limiting oxygen index from White Sands 1-g tests at 10.2 or 14.7 psia, not at the selected pressure or gravity. "
                                   "Transcribed from the report tables by a third party: check against NTRS 20110008636."},
     }
+
+
+# ------------------------------------------------------------------ compare two investigations
+# A numeric condition counts as "varied" only when its spread exceeds this tolerance (sensor drift is not a test variable).
+TOL = {"o2_pct": 1.0, "pressure_psia": 1.0, "flow_cm_s": 1.0}
+NUM = [("o2_pct", "Oxygen", "%"), ("pressure_psia", "Pressure", "psi"), ("flow_cm_s", "Flow speed", "cm/s")]
+WORD = {"o2_pct": "o2", "pressure_psia": "pressure", "flow_cm_s": "flow"}
+FAMILIES = ["SIBAL", "PMMA", "Nomex", "silicone", "Kapton", "Teflon", "wax", "lamp wick", "Pyrell", "DBP", "heptane", "methanol",
+            "octane", "decane", "ethanol", "propanol", "ethylene", "propane", "propylene", "PET", "PEI", "PEEK", "PVC", "nylon", "polyimide"]
+ALIAS = {"lampwick": "lamp wick", "dibutyl phthalate": "dbp", "cotton-fiberglass": "sibal"}
+STATIC = [("objective", "Objective"), ("platform", "Platform"), ("hardware", "Hardware"), ("sensors", "Sensors and measurements"),
+          ("fuel", "Fuels and samples"), ("measures", "What it measures"), ("safety", "Fire-safety relevance"), ("flown", "Flown")]
+
+
+def _families(text):
+    s = (text or "").lower()
+    for a, f in ALIAS.items():
+        s = s.replace(a, f)
+    words = set(re.findall(r"[a-z]+", s))
+    return {f for f in FAMILIES if (f.lower() in s if " " in f else f.lower() in words)}
+
+
+def _g(v):
+    return f"{v:.3g}"
+
+
+def _profile(inv_id):
+    """Everything known about one investigation: catalog text plus statistics computed from its rows."""
+    c = CAT[inv_id]
+    rows = [t for t in TESTS if t["investigation"] == inv_id]
+    flown = [t for t in rows if t["kind"] != "planned"]
+    threshold = bool(rows) and all(t["kind"] == "threshold_1g" for t in rows)
+    assumed = " ".join(sorted({t["assumed"] for t in rows if t["assumed"]})).lower()
+    num = {}
+    for k, label, unit in NUM:
+        vals = [t[k] for t in rows if t[k] is not None]
+        st = {"label": "Limiting oxygen (1-g threshold)" if threshold and k == "o2_pct" else label, "unit": unit, "n": len(vals),
+              "assumed": WORD[k] in assumed}
+        if vals:
+            st.update(min=min(vals), max=max(vals), levels=len({round(v, 1) for v in vals}))
+            st["status"] = "varied" if st["max"] - st["min"] > TOL[k] else "fixed"
+        else:
+            st["status"] = "not recorded"
+        num[k] = st
+    fuels = {}
+    for t in rows:
+        if t["fuel"]:
+            fuels[t["fuel"]] = fuels.get(t["fuel"], 0) + 1
+    outcomes, metrics = {}, {}
+    for t in flown:
+        if t["outcome"]:
+            outcomes[t["outcome"]] = outcomes.get(t["outcome"], 0) + 1
+        if t["metric_name"] and t["metric_value"] is not None:
+            m = metrics.setdefault(t["metric_name"], {"name": t["metric_name"], "unit": t["metric_unit"], "vals": []})
+            m["vals"].append(t["metric_value"])
+    diluents = sorted({t["diluent"] for t in rows if t["diluent"]})
+    varied = [s["label"].lower() for s in num.values() if s["status"] == "varied"]
+    fixed = [f"{s['label'].lower()} near {_g((s['min'] + s['max']) / 2)} {s['unit']}{' (assumed)' if s['assumed'] else ''}"
+             for s in num.values() if s["status"] == "fixed"]
+    if len(fuels) > 1:
+        varied.insert(0, f"fuel or sample ({len(fuels)} kinds)")
+    elif len(fuels) == 1:
+        fixed.insert(0, f"fuel ({next(iter(fuels))})")
+    if len(diluents) > 1:
+        varied.append("diluent")
+    return {
+        "id": inv_id, "name": c["name"], "psi": c["psi"], "doi_url": c["doi_url"], "tier": c["tier"], "tier_label": c["tier_label"],
+        "static": {k: c.get(k) for k, _ in STATIC}, "details_basis": c.get("details_basis"),
+        "records": len(rows), "kinds": {k: sum(1 for t in rows if t["kind"] == k) for k in sorted({t["kind"] for t in rows})},
+        "phases": sorted({t["phase"] for t in rows if t["phase"]}), "gravity": sorted({t["gravity"] for t in rows if t["gravity"]}),
+        "fuels": [{"fuel": f, "n": n} for f, n in sorted(fuels.items(), key=lambda x: -x[1])[:8]], "fuel_kinds": len(fuels),
+        "families": sorted(_families(" ".join(fuels) + " " + (c.get("fuel") or ""))),
+        "numeric": num, "diluents": diluents,
+        "outcomes": [{"outcome": o, "n": n} for o, n in sorted(outcomes.items(), key=lambda x: -x[1])],
+        "metrics": [{"name": m["name"], "unit": m["unit"], "n": len(m["vals"]), "min": min(m["vals"]), "max": max(m["vals"])} for m in metrics.values()],
+        "varied": varied, "fixed": fixed,
+        "not_recorded": [s["label"].lower() for s in num.values() if s["status"] == "not recorded"] if rows else [],
+        "points": [{"o2": o, "p": p} for o, p in sorted({(round(t["o2_pct"], 1), round(t["pressure_psia"], 1)) for t in rows
+                                                        if t["o2_pct"] is not None and t["pressure_psia"] is not None})],
+    }
+
+
+def _between(a, b):
+    """Plain-language similarities and differences, each derived from the two profiles."""
+    same, diff = [], []
+    for k in ("platform", "hardware"):
+        x, y = a["static"][k], b["static"][k]
+        if x and y and x == y:
+            same.append(f"Same {k}: {x}.")
+        elif x and y:
+            diff.append(f"Different {k}: {a['id']} used {x}; {b['id']} used {y}.")
+    if a["phases"] and b["phases"]:
+        if set(a["phases"]) == set(b["phases"]):
+            same.append(f"Same fuel phase: {', '.join(a['phases'])}.")
+        else:
+            diff.append(f"Different fuel phase: {a['id']} is {', '.join(a['phases'])}; {b['id']} is {', '.join(b['phases'])}.")
+    if a["gravity"] and b["gravity"] and a["gravity"] != b["gravity"]:
+        diff.append(f"Different gravity: {a['id']} ran at {', '.join(a['gravity'])}; {b['id']} at {', '.join(b['gravity'])}.")
+    shared = sorted(set(a["families"]) & set(b["families"]))
+    if shared:
+        same.append(f"Shared materials: {', '.join(shared)}.")
+    elif a["families"] and b["families"]:
+        diff.append("No material in common.")
+    for p, q in ((a, b), (b, a)):
+        only = sorted(set(p["families"]) - set(q["families"]))
+        if only and shared:
+            diff.append(f"Only in {p['id']}: {', '.join(only)}.")
+        if p["records"] and set(p["kinds"]) == {"planned"} and set(q["kinds"]) != {"planned"}:
+            diff.append(f"{p['id']} rows are planned conditions with no results; {q['id']} rows are completed tests.")
+    for k, label, unit in NUM:
+        x, y = a["numeric"][k], b["numeric"][k]
+        if x["n"] and y["n"] and x["label"] != y["label"]:
+            # a 1-g threshold's oxygen value is the limit it found, not a condition it was run at
+            diff.append(f"Oxygen means different things: a test condition in one, the limiting oxygen level found in the other. Not compared.")
+        elif x["n"] and y["n"]:
+            lo, hi = max(x["min"], y["min"]), min(x["max"], y["max"])
+            if lo <= hi + TOL[k] and abs(hi - lo) <= TOL[k]:
+                same.append(f"Both ran at {label.lower()} near {_g((lo + hi) / 2)} {unit}.")
+            elif lo <= hi:
+                same.append(f"{label} ranges overlap between {_g(lo)} and {_g(hi)} {unit}.")
+            else:
+                diff.append(f"{label} ranges do not overlap: {a['id']} {_g(x['min'])} to {_g(x['max'])} {unit}; "
+                            f"{b['id']} {_g(y['min'])} to {_g(y['max'])} {unit}.")
+        elif bool(x["n"]) != bool(y["n"]) and a["records"] and b["records"]:
+            have, lack = (a, b) if x["n"] else (b, a)
+            diff.append(f"{label} is recorded for {have['id']} but not for {lack['id']}.")
+    ma, mb = {m["name"] for m in a["metrics"]}, {m["name"] for m in b["metrics"]}
+    if ma and mb:
+        if ma & mb:
+            same.append(f"Same measured quantity: {', '.join(sorted(ma & mb)).replace('_', ' ')}.")
+        else:
+            diff.append(f"Different measured quantity: {a['id']} reports {', '.join(sorted(ma)).replace('_', ' ')}; "
+                        f"{b['id']} reports {', '.join(sorted(mb)).replace('_', ' ')}.")
+    for p in (a, b):
+        if not p["records"]:
+            diff.append(f"{p['id']} has no test records loaded, so only its catalog description can be compared.")
+    return same, diff
+
+
+@app.get("/compare")
+def compare(a: str, b: str):
+    for x in (a, b):
+        if x not in CAT:
+            raise HTTPException(404, f"Unknown investigation '{x}'. Use an id from /catalog.")
+    pa, pb = _profile(a), _profile(b)
+    same, diff = _between(pa, pb)
+    return {"a": pa, "b": pb, "similarities": same, "differences": diff,
+            "static_fields": [{"key": k, "label": label} for k, label in STATIC],
+            "note": "Ranges and counts are computed from the unified test table. Descriptions come from the catalog; "
+                    "the basis line under each column says where its hardware and sensor text came from."}
 
 
 def _ensemble(members, x, clf):

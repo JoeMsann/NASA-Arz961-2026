@@ -302,7 +302,7 @@ if __name__ == "__main__":
     for c in cat:
         c["rows"] = int(counts.get(c["id"], 0))
         c["doi_url"] = f"https://doi.org/{c['doi']}" if c["doi"] else (
-            f"https://ntrs.nasa.gov/citations/{c['psi'].split('-')[1]}" if c["psi"].startswith("NTRS") else None)
+            f"https://ntrs.nasa.gov/citations/{c['psi'].split('-')[1]}" if (c["psi"] or "").startswith("NTRS") else None)
 
     db = OUT / "unified.db"
     db.unlink(missing_ok=True)

@@ -3,13 +3,14 @@ import { useEffect, useMemo, useState } from "react";
 import SpaceScene from "@/components/SpaceScene";
 import EnvPanel from "@/components/EnvPanel";
 import Navigator from "@/components/Navigator";
+import Compare from "@/components/Compare";
 import Predictor from "@/components/Predictor";
 import AskPsi from "@/components/AskPsi";
 import TestTable from "@/components/TestTable";
 import EarthBenefits from "@/components/EarthBenefits";
 import { api, Atmos, Env } from "@/lib/api";
 
-const TABS = [["nav", "Habitat risk navigator"], ["predict", "Flame predictor"], ["ask", "Ask PSI"], ["table", "Unified test table"], ["earth", "Earth benefits"]] as const;
+const TABS = [["nav", "Habitat risk navigator"], ["compare", "Compare investigations"],["predict", "Flame predictor"], ["ask", "Ask PSI"], ["table", "Unified test table"], ["earth", "Earth benefits"]] as const;
 type Tab = (typeof TABS)[number][0];
 
 export default function Page() {
@@ -52,6 +53,7 @@ export default function Page() {
           {TABS.map(([t, label]) => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{label}</button>)}
         </nav>
         {tab === "nav" && env && atmos && <Navigator env={env} atmos={atmos} nav={nav} onAsk={ask} />}
+        {tab === "compare" && <Compare onAsk={ask} />}
         {tab === "predict" && env && atmos && <Predictor env={env} atmos={atmos} />}
         {tab === "ask" && <AskPsi seed={question} onSeedUsed={() => setQuestion("")} />}
         {tab === "table" && <TestTable />}
