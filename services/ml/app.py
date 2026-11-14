@@ -305,6 +305,96 @@ def _ensemble(members, x, clf):
     return {"mean": float(v.mean()), "lo": float(np.quantile(v, .05)), "hi": float(np.quantile(v, .95))}
 
 
+# ------------------------------------------------------------------ flame simulation (Predictor tab)
+# One FLEX-style droplet burn drawn from the prediction. Droplet size: the d^2 law with the predicted K. Ending: the
+# extinction model's chance, and the droplet size at extinction from the closest FLEX runs that went out. Flame size:
+# flame standoff ratio (FSR = flame diameter / droplet diameter) as measured in FLEX and published in FLEX_PAPER.
+# The FSR constants below were read off that paper's figures; docs/flame-simulation.md shows how.
+FLEX_PAPER = {"cite": "Dietrich et al. (2014), Droplet combustion experiments aboard the International Space Station, "
+                      "Microgravity Sci. Technol. 26:65-76", "url": "https://doi.org/10.1007/s12217-014-9372-2"}
+COOL_PAPER = {"cite": "Nayagam et al. (2012), Can cool flames support quasi-steady alkane droplet burning?, "
+                      "Combust. Flame 159:3583-3588", "url": "https://doi.org/10.1016/j.combustflame.2012.07.012"}
+FSR_M_LINE = ((0.126, 5.94), (0.343, 4.11))  # methanol, Fig. 7 trend line: average FSR against O2 mole fraction (ends of the line)
+FSR_M_START, FSR_M_TAU = 0.76, 1.5            # methanol, Fig. 6: FSR starts at ~0.76 of its average; time constant ~1.5 s
+FSR_H = {"start": 6.8, "slope": 5.4, "max": 15.0, "o2": 0.19}  # heptane, Figs. 3-4: FSR ~ 6.8 + 5.4 t/D0^2 at 18-20% O2
+SOOT_TAU = 0.4    # s; heptane's ignition glow is soot-yellow and "quickly" turns blue (paper text); the fade time is a drawing choice
+RETREAT_S = 0.25  # s; radiative extinction: the flame retreats from one side over 5-10 video frames at 30 fps
+LUM_END = 0.35    # brightness at the end relative to the start; qualitative ("brighter early, very dim near extinction")
+NEAREST_OUT = 5   # closest FLEX runs that went out, used for the extinction diameter
+SAMPLES = 160
+_seen = {}
+for _r in MODELS["train_rows"]:  # the FLEX table repeats an identifier; name repeats "#2" as the unified table does
+    _seen[_r["id"]] = _seen.get(_r["id"], 0) + 1
+    _r["run"] = _r["id"] if _seen[_r["id"]] == 1 else f"{_r['id']}#{_seen[_r['id']]}"
+
+
+def _d2_check(fuel):
+    """How well the d^2 law with each run's own K reproduces the recorded burn time of FLEX runs that went out."""
+    rows = [r for r in MODELS["train_rows"] if r["fuel"] == fuel and r.get("end") == "Extinction"
+            and r.get("d_ext") and r.get("t_burn") and r.get("k") and r["d0"] > r["d_ext"]]
+    ratio = np.array([r["t_burn"] / ((r["d0"] ** 2 - r["d_ext"] ** 2) / r["k"]) for r in rows])
+    if not len(ratio):
+        return None
+    return {"n": len(ratio), "median": round(float(np.median(ratio)), 2),
+            "p10": round(float(np.quantile(ratio, .1)), 2), "p90": round(float(np.quantile(ratio, .9)), 2)}
+
+
+FUEL_FACTS = {fuel: {"d2_check": _d2_check(fuel),
+                     "runs": sum(r["fuel"] == fuel for r in MODELS["train_rows"]),
+                     "disrupted": sum(r["fuel"] == fuel and r.get("end") == "Disruption" for r in MODELS["train_rows"])}
+              for fuel in MODELS["domain"]}
+
+
+def _fsr_methanol(o2):
+    (x0, y0), (x1, y1) = FSR_M_LINE
+    return y0 + (y1 - y0) / (x1 - x0) * (min(max(o2, x0), x1) - x0)  # held at the line's ends outside its range
+
+
+def _fsr(fuel, o2, t, d0):
+    if fuel == "Methanol":
+        return _fsr_methanol(o2) * (1 - (1 - FSR_M_START) * np.exp(-t / FSR_M_TAU))
+    # Heptane: measured at 18-20% O2 only. Other oxygen levels are scaled by methanol's measured trend; Burke-Schumann
+    # theory gives both fuels nearly the same relative change of FSR with oxygen.
+    return np.minimum(FSR_H["start"] + FSR_H["slope"] * t / d0 ** 2, FSR_H["max"]) * _fsr_methanol(o2) / _fsr_methanol(FSR_H["o2"])
+
+
+def _burn(fuel, o2, d0, k, t_end):
+    t = np.linspace(0, max(t_end, 1e-3), SAMPLES)
+    d = np.sqrt(np.maximum(d0 ** 2 - k * t, 0))
+    fsr = _fsr(fuel, o2, t, d0)
+    r = lambda a, n=3: [round(float(v), n) for v in a]
+    return {"t_end": round(float(t[-1]), 2), "t": r(t), "d": r(d), "df": r(d * fsr, 2), "fsr": r(fsr, 2),
+            "lum": r(1 - (1 - LUM_END) * t / t[-1], 2),
+            "soot": r(np.exp(-t / SOOT_TAU) if fuel == "Heptane" else np.zeros_like(t), 2)}
+
+
+def flame(fuel, f, k, p_out):
+    """Both endings of one burn, sampled in time. f: model features (o2 as a fraction, d0 in mm); k in mm^2/s."""
+    if k <= 0:
+        return None
+    sc = MODELS["scale"]
+    runs = [r for r in MODELS["train_rows"] if r["fuel"] == fuel and r.get("end") == "Extinction" and r.get("d_ext")]
+    near = sorted(runs, key=lambda r: sum(((r[c] - f[c]) / sc[c]) ** 2 for c in sc))[:NEAREST_OUT]
+    ratio = float(np.median([min(r["d_ext"] / r["d0"], 1.0) for r in near])) if near else None
+    d0, o2 = f["d0"], f["o2"]
+    out = None
+    if ratio is not None:
+        d_end = d0 * ratio
+        out = {"p": round(p_out, 3), "d_end": round(d_end, 2), "ratio": round(ratio, 2),
+               "mode": "radiative" if fuel == "Heptane" else "diffusive", "retreat_s": RETREAT_S if fuel == "Heptane" else 0,
+               "from_runs": [{"id": r["run"], "d0_mm": r["d0"], "d_ext_mm": r["d_ext"], "ratio": round(r["d_ext"] / r["d0"], 2)} for r in near],
+               **_burn(fuel, o2, d0, k, (d0 ** 2 - d_end ** 2) / k)}
+    burnout = {"p": round(1 - p_out, 3), "d_end": 0, "mode": "burnout", "retreat_s": 0, **_burn(fuel, o2, d0, k, d0 ** 2 / k)}
+    lo, hi = FSR_M_LINE[0][0], FSR_M_LINE[1][0]
+    return {"fuel": fuel, "k": round(k, 3), "d0": d0, "default": "out" if out and p_out >= 0.5 else "burnout",
+            "out": out, "burnout": burnout,
+            "fsr_o2_held": o2 < lo or o2 > hi, "fsr_o2_range": [round(lo * 100, 1), round(hi * 100, 1)],
+            # methanol: the settled ratio at this oxygen level; heptane: the oxygen scaling applied to the measured line
+            "fsr_steady": round(_fsr_methanol(o2), 2) if fuel == "Methanol" else None,
+            "fsr_o2_factor": round(_fsr_methanol(o2) / _fsr_methanol(FSR_H["o2"]), 2) if fuel == "Heptane" else None,
+            **FUEL_FACTS[fuel], "sources": {"flex": FLEX_PAPER, "cool_flame": COOL_PAPER}}
+
+
 @app.post("/predict")
 def predict(i: PredictIn):
     if i.fuel not in MODELS["domain"]:
@@ -323,8 +413,9 @@ def predict(i: PredictIn):
     rows = [r for r in MODELS["train_rows"] if r["fuel"] == i.fuel]
     near = sorted(rows, key=lambda r: sum(((r[k] - f[k]) / sc[k]) ** 2 for k in sc))[:5]
     pairs = [t for t in TESTS if t["investigation"] == "SAFFIRE-II"]
+    ext, burn = _ensemble(MODELS["extinction"], x_ext, True), _ensemble(MODELS["burn_rate"], x, False)
     return {
-        "extinction": _ensemble(MODELS["extinction"], x_ext, True), "burn_rate": _ensemble(MODELS["burn_rate"], x, False),
+        "extinction": ext, "burn_rate": burn, "flame": flame(i.fuel, f, burn["mean"], ext["mean"]),
         "outside": outside, "extrapolating": bool(outside),
         "nearest": [{"id": r["id"], "o2_pct": round(r["o2"] * 100, 1), "pressure_psia": round(r["p_atm"] * PSI_PER_ATM, 1),
                      "co2_pct": round(r["co2"] * 100), "he_pct": round(r["he"] * 100), "d0_mm": r["d0"], "k": r["k"], "end": r["end"]} for r in near],

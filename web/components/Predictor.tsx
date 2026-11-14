@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api, Atmos, Env, fmt } from "@/lib/api";
+import FlameSim from "@/components/FlameSim";
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 function Range({ lo, hi, mean, max }: { lo: number; hi: number; mean: number; max: number }) {
@@ -25,17 +26,21 @@ export default function Predictor({ env, atmos }: { env: Env; atmos: Atmos }) {
   const s = out?.scores;
 
   return (
-    <div className="grid g2">
+    <div className="grid">
       <div className="grid">
         <div className="card">
-          <h2>Small liquid-fuel fire in {env.name}</h2>
-          <p className="note">Uses the oxygen and pressure set above ({fmt(atmos.o2_pct)}% O₂, {fmt(atmos.pressure_psia)} psi). {out?.scope}</p>
+          <h3>Small liquid-fuel fire in {env.name}</h3>
+          <p className="note">Uses the oxygen and pressure set for the selected place ({fmt(atmos.o2_pct)}% O₂, {fmt(atmos.pressure_psia)} psi). {out?.scope}</p>
           <label>Fuel</label>
           <select value={x.fuel} onChange={(e) => setX({ ...x, fuel: e.target.value })}><option>Heptane</option><option>Methanol</option></select>
           {slider("co2_pct", "CO₂ added (suppressant)", 0, 70, 1, "%")}
           {slider("he_pct", "Helium added (diluent)", 0, 45, 1, "%")}
           {slider("d0_mm", "Droplet diameter", 1, 5, 0.05, " mm")}
         </div>
+        {err && <div className="card bad">{err}</div>}
+        {out && (out.flame
+          ? <FlameSim flame={out.flame} gravity={atmos.gravity_g} extrapolating={out.extrapolating} />
+          : <div className="card note">No flame simulation: the burning-rate model predicts no burning here, which is far outside what FLEX tested.</div>)}
         {s && (
           <div className="card">
             <h3>How far to trust this</h3>
@@ -49,7 +54,6 @@ export default function Predictor({ env, atmos }: { env: Env; atmos: Atmos }) {
       </div>
 
       <div className="grid">
-        {err && <div className="card bad">{err}</div>}
         {out?.outside.length > 0 && (
           <div className="card warn"><b>Outside the tested range. Treat every number below as extrapolation.</b>
             {out.outside.map((o: any) => <div key={o.feature}>{o.feature}: {o.value} {o.unit} (tested {o.min} to {o.max} {o.unit})</div>)}

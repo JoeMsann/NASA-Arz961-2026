@@ -301,11 +301,13 @@ def train(d=None):
     Xc, yc = c[FEATS].to_numpy(float), (c.end == "Extinction").to_numpy(int)
     Xr, yr = r[FEATS].to_numpy(float), r.k.to_numpy(float)
     C = pick_c(expand(Xc), yc, c.date.to_numpy())
+    # d_ext (droplet diameter when the visible flame went out) and t_burn feed the flame simulation, not the models
+    keep = [col for col in ["id", "fuel", "o2", "p_atm", "co2", "he", "d0", "k", "d_ext", "t_burn", "end"] if col in d]
     models = {"features": FEATS, "extinction_terms": TERMS, "extinction_term_names": term_names(), "extinction_C": C,
               "extinction": boot(expand(Xc), yc, "clf", C), "burn_rate": boot(Xr, yr, "reg"),
               "domain": {fuel: {f: [float(g[f].min()), float(g[f].max())] for f in FEATS[1:]} for fuel, g in d.groupby("fuel")},
               "scale": {f: float(d[f].std()) for f in FEATS[1:]},
-              "train_rows": d[["id", "fuel", "o2", "p_atm", "co2", "he", "d0", "k", "end"]].replace({np.nan: None}).to_dict("records")}
+              "train_rows": d[keep].replace({np.nan: None}).to_dict("records")}
     report = {"extinction": cv(Xc, yc, c.date.to_numpy(), "clf"), "burn_rate": cv(Xr, yr, r.date.to_numpy(), "reg"),
               "excluded_disruption_runs": int((d.end == "Disruption").sum()),
               "validation": "5-fold GroupKFold grouped by test date, so same-day repeats never straddle train and test",
