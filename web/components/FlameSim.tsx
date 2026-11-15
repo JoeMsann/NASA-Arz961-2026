@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { fmt } from "@/lib/api";
+import { BLUE, FlameScene, SHELL, createFlameScene } from "@/components/scene/flame3d";
 
 // One droplet burn drawn from the Predictor's result. The ml service computes every number (flame() in services/ml/app.py);
 // this component only interpolates its time samples and draws them. docs/flame-simulation.md explains the physics.
@@ -17,12 +18,10 @@ export type Flame = {
   sources: { flex: Source; cool_flame: Source };
 };
 type Ending = "out" | "burnout";
+type View = "3d" | "2d";
 
 const SPEEDS = [1, 2, 5, 10];
 const BG = "#020306";
-// Blue of the reaction zone: heptane's from CH and C2 radicals, methanol's fainter and paler.
-const BLUE: Record<Flame["fuel"], [number, number, number]> = { Heptane: [80, 130, 255], Methanol: [140, 152, 255] };
-const SHELL = 0.25;  // glowing shell thickness as a fraction of the flame radius (a drawing choice, not data)
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 const still = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -123,12 +122,35 @@ function draw(cv: HTMLCanvasElement, fuel: Flame["fuel"], b: Burn, t: number, fo
   ctx.fillText(`${t.toFixed(1)} s`, W - 14 * dpr, y0);
 }
 
+/** What the 3D scene draws at time t: the same interpolated numbers as the flat drawing. */
+function frame3(flame: Flame, b: Burn, t: number, cut: boolean) {
+  const end = b.t[b.t.length - 1], s = sample(b, t), alive = t < end && s.df > 0, into = t - (end - b.retreat_s);
+  return {
+    fuel: flame.fuel, d: t >= end ? b.d_end : s.d, df: alive ? s.df : 0, lum: s.lum, soot: s.soot,
+    retreat: alive && b.retreat_s > 0 && into > 0 ? into / b.retreat_s : null, dfMax: Math.max(...b.df), cut,
+  };
+}
+
+/** Scale bar for the 3D view. Exact at the droplet's depth; the narrow perspective changes it little elsewhere. */
+function ScaleBar({ pxmm }: { pxmm: number }) {
+  if (!pxmm) return null;
+  const fits = [0.5, 1, 2, 5, 10, 20, 50, 100].filter((mm) => mm * pxmm <= 120);
+  const mm = fits.length ? fits[fits.length - 1] : 0.5;
+  return <span className="sim-scale" style={{ width: mm * pxmm }}><i>{mm} mm</i></span>;
+}
+
 export default function FlameSim({ flame, gravity, extrapolating }: { flame: Flame; gravity: number; extrapolating: boolean }) {
   const [ending, setEnding] = useState<Ending>(flame.default);
   const [t, setT] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
-  const [size, setSize] = useState("");       // canvas size in device pixels; a change means the canvas was cleared
+  const [size, setSize] = useState(0);        // bumped whenever the flat canvas is resized, which clears it
+  const [view, setView] = useState<View>("3d");
+  const [gl, setGl] = useState(true);         // false once WebGL failed: then the flat drawing is all there is
+  const [cut, setCut] = useState(false);
+  const [pxmm, setPxmm] = useState(0);        // 3D view: CSS pixels per millimetre at the droplet, for the scale bar
+  const scene3 = useRef<FlameScene | null>(null);
+  const glHost = useRef<HTMLDivElement>(null);
   const tRef = useRef(0);
   const cv = useRef<HTMLCanvasElement>(null);
   const b = (ending === "out" && flame.out) || flame.burnout;
@@ -146,17 +168,30 @@ export default function FlameSim({ flame, gravity, extrapolating }: { flame: Fla
     setPlaying(!still());
   }, [flame]);
 
+  // Flat drawing: keep the canvas at device resolution. The 3D scene sizes its own canvas.
   useEffect(() => {
     const el = cv.current;
-    if (!el) return;
+    if (view !== "2d" || !el) return;
     const ro = new ResizeObserver(() => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const w = Math.round(el.clientWidth * dpr), h = Math.round(el.clientHeight * dpr);
-      if (el.width !== w || el.height !== h) { el.width = w; el.height = h; setSize(`${w}x${h}`); }
+      if (el.width !== w || el.height !== h) { el.width = w; el.height = h; setSize((n) => n + 1); }
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [view]);
+
+  // 3D scene: built on the canvas when the 3D view is shown, torn down when it is left
+  useEffect(() => {
+    const el = glHost.current;
+    if (view !== "3d" || !el) return;
+    const sc = createFlameScene(el, { still: still() });
+    if (!sc) { setGl(false); setView("2d"); return; }
+    scene3.current = sc;
+    sc.onView(() => setPxmm(sc.pxPerMm()));
+    return () => { sc.dispose(); scene3.current = null; setPxmm(0); };
+  }, [view]);
+  useEffect(() => { scene3.current?.fit(fov); }, [fov, view]);
 
   useEffect(() => {
     if (!playing) return;
@@ -172,7 +207,10 @@ export default function FlameSim({ flame, gravity, extrapolating }: { flame: Fla
     return () => cancelAnimationFrame(raf);
   }, [playing, speed, end]);
 
-  useEffect(() => { if (cv.current && size) draw(cv.current, flame.fuel, b, t, fov); }, [flame.fuel, b, t, fov, size]);
+  useEffect(() => {
+    if (view === "3d") scene3.current?.frame(frame3(flame, b, t, cut));
+    else if (cv.current && size) draw(cv.current, flame.fuel, b, t, fov);
+  }, [view, flame, b, t, fov, size, cut]);
 
   const pick = (e: Ending) => { setEnding(e); seek(0); setPlaying(!still()); };
   const play = () => { if (tRef.current >= end) { seek(0); setPlaying(true); } else setPlaying(!playing); };
@@ -210,8 +248,20 @@ export default function FlameSim({ flame, gravity, extrapolating }: { flame: Fla
         </button>
       </div>
 
+      <div className="row sim-opts" role="group" aria-label="View">
+        <button className="ghost" aria-pressed={view === "3d"} disabled={!gl} onClick={() => setView("3d")}
+          title={gl ? undefined : "WebGL is not available in this browser"}>3D</button>
+        <button className="ghost" aria-pressed={view === "2d"} onClick={() => setView("2d")}>Camera view</button>
+        {view === "3d" && <button className="ghost" aria-pressed={cut} onClick={() => setCut(!cut)}>Cut flame in half</button>}
+      </div>
+
       <div className="sim-view">
-        <canvas ref={cv} role="img" aria-label={label} />
+        {view === "2d" ? <canvas ref={cv} role="img" aria-label={label} /> : <>
+          <div ref={glHost} className="sim-gl" role="img" aria-label={`${label} Shown in 3D: drag to turn, scroll to zoom.`} />
+          <ScaleBar pxmm={pxmm} />
+          <span className="sim-clock">{t.toFixed(1)} s</span>
+          <span className="sim-hint">Drag to turn · scroll to zoom</span>
+        </>}
       </div>
 
       <div className="row sim-controls">
@@ -266,6 +316,17 @@ export default function FlameSim({ flame, gravity, extrapolating }: { flame: Fla
               so the value at the nearer end of that range is used.</>}
             {" "}Pressure, CO₂ and helium do not change the ratio in this drawing, only how fast the droplet burns: FLEX methanol flames kept a
             ratio near 5 in air and with 30% CO₂ or helium.
+          </li>
+          <li>
+            <b>3D view.</b> The same numbers as the camera view, drawn as glowing gas you can turn. Each pixel adds up the light along
+            its line of sight through the flame, as a camera does, so the thin reaction zone shows as a bright rim around a fainter
+            middle from every angle. Soot glows and also hides what is behind it. Bright areas bleed a little, as in a real lens.
+            &ldquo;Cut flame in half&rdquo; removes the near half so the gap between droplet and flame (the standoff distance) shows
+            from the side. The faint rings mark the largest size the flame reaches in this burn. Drawing choices, not data: how thick
+            the glowing zone is, the slightly greener inner edge, the soot&apos;s position and churning texture, the lens glow, and the
+            droplet&apos;s shading (it uses the liquid&apos;s real refractive index, but no test recorded how the droplet looked).
+            The flame stays a sphere because FLEX droplets burned in still gas with no buoyancy. Drift, airflow or gravity would
+            stretch it, and neither the model nor the data here covers that.
           </li>
           <li>
             <b>Shape.</b> A sphere centred on the droplet, steady, with no flicker. A candle&apos;s flicker and teardrop shape both come from

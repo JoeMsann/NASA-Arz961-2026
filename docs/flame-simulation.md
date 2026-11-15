@@ -9,7 +9,8 @@ The Predictor tab draws one burn from the prediction: a heptane or methanol drop
 | `pipeline/build.py` | `models.json` `train_rows` also carry each FLEX run's `d_ext` (droplet diameter when the visible flame went out) and `t_burn`. The models are unchanged: a rebuild gives identical coefficients |
 | `data/build/models.json` | Rebuilt. Only `train_rows` changed |
 | `services/ml/app.py` | `flame()`; `/predict` returns it as `flame` (both endings sampled in time, plus the sources) |
-| `web/components/FlameSim.tsx` | Canvas drawing, playback, the explanation |
+| `web/components/FlameSim.tsx` | Canvas drawing, playback, the explanation, the 3D / camera view switch |
+| `web/components/scene/flame3d.ts` | The 3D view (see "3D view" below) |
 | `web/components/Predictor.tsx` | Shows `FlameSim` after the two prediction cards |
 | `web/app/globals.css` | `.seg`, `.sim-*` |
 
@@ -57,6 +58,29 @@ These runs burned at 18 to 20% O₂. At other oxygen levels the line is multipli
 - The cool flame that kept large heptane droplets burning after the visible flame went out (Nayagam et al. 2012, [doi:10.1016/j.combustflame.2012.07.012](https://doi.org/10.1016/j.combustflame.2012.07.012)). The status line mentions it.
 - Droplet break-up (32 of 108 heptane runs and 23 of 153 methanol runs), drift, the igniters and the needles.
 - Partial or full gravity. Above 0.01 g the card says the drawing is for microgravity and that buoyancy would make a teardrop.
+
+## 3D view
+
+The simulation opens in a 3D view (three.js, `web/components/scene/flame3d.ts`); "Camera view" switches to the flat drawing above, which is also the fallback when WebGL is not available. Both views draw the same interpolated numbers from `/predict`: nothing new is computed in the browser, and one scene unit is one millimetre.
+
+The flame is rendered as glowing gas, not as a painted surface. A fragment shader marches each pixel's line of sight through the flame (80 steps, out to 1.3 flame radii) and adds up the light it passes, in high dynamic range. Bloom and tone mapping then turn that into the picture, as a lens and sensor would.
+
+| Element | How it is drawn | Data or drawing choice |
+| --- | --- | --- |
+| Flame | Blue emission peaking at 0.875 flame radii with a Gaussian width of 0.07, so it fills the same 0.75 to 1 band as the flat drawing's shell and gives the same rim-to-centre contrast (about 2.6). Brightness scales with `lum` | Diameter and brightness trend: data. Zone thickness: drawing choice (as in the flat view). The fuel side is tinted slightly green-blue: drawing choice |
+| Soot | Emitting and absorbing cloud between droplet and flame (centred at 0.52 flame radii), density = `soot` × a slow noise field; orange near the droplet, yellow near the flame | Strength and timing: same as flat view. Position, colours and texture: decoration (FLEX images do not resolve soot structure) |
+| Droplet | Sphere of diameter `d`, at least 1.5 px across. Fresnel reflection from the liquid's refractive index (heptane 1.39, methanol 1.33), lit by the flame and soot colour, plus a faint fill light so the leftover droplet is visible after the flame is out. It hides the gas behind it | Diameter: data. Refractive indices: handbook values. Everything else: drawing choice |
+| Cutaway | "Cut flame in half" skips gas with x > 0, so the gap between droplet and flame (standoff) can be seen from the side | Drawing aid |
+| Going out | Heptane: the same sweep as the flat view (dark side moving across in 0.25 s), applied in 3D along one axis. Methanol: gone in one frame | As in the flat view |
+| Lens glow | Bloom pass (strength 0.22), then Khronos neutral tone mapping, which keeps the flame's hue and only rolls off over-bright areas | Drawing choice. Brightness is relative, as in the flat view |
+| Rings | Three faint great circles at the largest flame diameter of this burn | Reference only |
+| Scale bar | CSS pixels per mm at the droplet's depth, updated as the view is turned or zoomed. Field of view is 30°, so perspective changes sizes little | Exact at the droplet |
+
+The flame is a sphere on purpose. FLEX droplets burned in still gas at below 10⁻⁵ g, and the predictor is trained on those runs only. Other shapes in NASA's material come from things this model does not cover: buoyancy (the 1-g teardrop), a droplet moving through the gas or a forced airflow (the stretched heptane flame in Fig. 2 of the Researcher's Guide, translated at 3 cm/s), or the fuel's geometry (candle wick, gas jet, flat sample). The interface says so.
+
+Reduced motion: the soot texture does not animate.
+
+Checks run for the 3D view: `npx tsc --noEmit` clean. In the Browser pane against `next dev` and the ml service: heptane ignition (soot), mid-burn, cutaway, radiative retreat, methanol mid-burn, the leftover droplet after extinction, switching to the camera view and back. Not checked: phones and touch, browsers other than Chromium, reduced-motion mode, frame rate on low-end GPUs, the Docker image.
 
 ## Data notes found on the way
 
