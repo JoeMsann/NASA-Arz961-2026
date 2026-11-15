@@ -4,6 +4,7 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 
 // The Predictor's droplet burn in 3D. Like the flat drawing in FlameSim.tsx it only draws numbers the ml service computed
 // (droplet and flame diameters, brightness, soot glow, how the flame goes out); docs/flame-simulation.md has the physics.
@@ -11,6 +12,9 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 //
 // The flame is drawn the way a camera would see glowing gas: every pixel adds up the light along its line of sight through
 // the flame (ray marching), in high dynamic range, and bright areas bleed a little as they do in a real lens (bloom).
+// The look is modelled on photographs of microgravity flames (NASA's Researcher's Guide to Combustion Science, Figs. 1, 5
+// and the cover): a soft hazy body with no hard outline, colour that runs from teal inside through azure to a violet edge,
+// soot that burns out to white where it is thickest, and a little sensor grain.
 
 export type Fuel = "Heptane" | "Methanol";
 export type FlameFrame = {
@@ -38,10 +42,17 @@ export const SHELL = 0.25;   // glowing shell thickness as a fraction of the fla
 const INDEX: Record<Fuel, number> = { Heptane: 1.39, Methanol: 1.33 };
 const BG = 0x020306;
 const FOV_Y = 30;            // degrees; narrow, so perspective barely distorts sizes
-const BOUND = 1.3;           // the gas is marched out to this many flame radii
-// The reaction zone glows most at RC flame radii and fades to either side (Gaussian, width SIG). Together they fill the same
-// band as the flat drawing's shell, 0.75 to 1 flame radius, and give the same contrast between rim and centre (about 2.6).
-const RC = 1 - SHELL / 2, SIG = 0.07;
+const BOUND = 1.2;           // the gas is marched out to this many flame radii
+// Brightness across the flame, in flame radii: it peaks at RC, falls off quickly outward (width OUT) and slowly inward
+// (width IN), where hot burnt gas still glows faintly. So the flame has a soft edge near 1 and a hazy, filled middle.
+const RC = 0.92, OUT = 0.055, IN = 0.16;
+// Colours of the glow, linear RGB: [inside, brightest zone, outer edge]. Hydrocarbon flames photograph blue-green where
+// C2 radicals emit (the fuel side), blue from CH, and violet-blue at the lean outer edge. Methanol makes little C2, so its
+// flame is a paler, more even blue. The exact shades are a drawing choice.
+const GLOW: Record<Fuel, [number, number, number][]> = {
+  Heptane: [[0.04, 0.38, 0.46], [0.07, 0.52, 0.85], [0.10, 0.07, 0.85]],
+  Methanol: [[0.10, 0.28, 0.50], [0.18, 0.40, 0.95], [0.18, 0.14, 0.85]],
+};
 
 const VERT = /* glsl */ `
   varying vec3 vWorld;
@@ -59,12 +70,12 @@ const GAS_FRAG = /* glsl */ `
   varying vec3 vWorld;
   uniform float uR;        // flame radius, mm
   uniform float uDrop;     // droplet radius, flame radii
-  uniform vec3 uColor;     // linear RGB of the reaction zone
+  uniform vec3 uInner; uniform vec3 uPeak; uniform vec3 uRim;   // linear RGB: inside, brightest zone, outer edge
   uniform float uLum; uniform float uSoot; uniform float uTime;
   uniform float uEdge;     // extinction sweep position along x (10 = none)
   uniform float uCut;      // 1 = only the half with x < 0
   const int STEPS = 80;
-  const float BOUND = ${BOUND.toFixed(3)}, RC = ${RC.toFixed(4)}, SIG = ${SIG.toFixed(4)};
+  const float BOUND = ${BOUND.toFixed(3)}, RC = ${RC.toFixed(4)}, OUT = ${OUT.toFixed(4)}, IN = ${IN.toFixed(4)};
 
   float hash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
   float noise(vec3 x) {
@@ -88,7 +99,6 @@ const GAS_FRAG = /* glsl */ `
     float dt = (t1 - t0) / float(STEPS);
     // start each ray at a slightly different depth, so the steps do not show as rings
     float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
-    vec3 inner = mix(uColor, vec3(0.30, 0.78, 1.0), 0.35);   // the fuel side of a hydrocarbon flame is a little greener
     vec3 sum = vec3(0.0);
     float trans = 1.0;
     for (int i = 0; i < STEPS; i++) {
@@ -96,17 +106,20 @@ const GAS_FRAG = /* glsl */ `
       float r = length(p);
       float keep = (1.0 - smoothstep(uEdge - 0.3, uEdge, p.x)) * (uCut > 0.5 ? step(p.x, 0.0) : 1.0);
       if (keep <= 0.0) continue;
-      float x = (r - RC) / SIG;
-      vec3 emit = mix(inner, uColor, smoothstep(-1.0, 1.0, x)) * exp(-x * x) * 0.9 * uLum;
+      float d = r - RC;
+      float glow = d > 0.0 ? exp(-d * d / (OUT * OUT)) : exp(-pow(-d / IN, 1.4));
+      vec3 col = mix(mix(uInner, uPeak, smoothstep(-0.30, -0.03, d)), uRim, smoothstep(0.0, 0.09, d));
+      // real flames are never perfectly even: a faint, fixed mottling (it does not move, so the flame does not flicker)
+      vec3 emit = col * glow * (1.0 + 0.16 * (noise(p * 1.7 + 11.0) - 0.5)) * 1.05 * uLum;
       float dens = 0.0;
       if (uSoot > 0.01) {
-        // soot gathers between the droplet and the flame and glows by its own heat: yellow-white where it is hottest
-        // (near the flame), deep orange nearer the cool droplet
-        float s = (r - 0.52) / 0.2;
-        dens = exp(-s * s) * uSoot * (0.45 + 1.1 * fbm(p * 3.2 + vec3(0.0, 0.0, uTime * 0.5)));
-        emit += mix(vec3(1.0, 0.28, 0.03), vec3(1.0, 0.72, 0.16), smoothstep(0.25, 0.8, r)) * dens * 2.0;
+        // soot inside the flame glows by its own heat. Where the line of sight passes through a lot of it the picture
+        // burns out to white-yellow, as in the photographs; toward its thin edge it stays orange
+        float s = r / 0.4;
+        dens = exp(-s * s) * uSoot * (0.5 + 1.0 * fbm(p * 3.2 + vec3(0.0, 0.0, uTime * 0.5)));
+        emit += vec3(1.0, 0.50, 0.10) * dens * 3.2;
       }
-      float a = exp(-dens * 2.5 * dt);   // soot also hides what is behind it
+      float a = exp(-dens * 0.9 * dt);   // soot also dims what is behind it
       sum += trans * emit * keep * dt;
       trans *= mix(1.0, a, keep);
     }
@@ -136,7 +149,21 @@ const DROP_FRAG = /* glsl */ `
   }
 `;
 
-const linear = (fuel: Fuel) => new THREE.Color().setRGB(BLUE[fuel][0] / 255, BLUE[fuel][1] / 255, BLUE[fuel][2] / 255, THREE.SRGBColorSpace);
+// Sensor grain, added after tone mapping: a little everywhere, a little more where the picture is bright.
+const GRAIN = {
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: /* glsl */ `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse; varying vec2 vUv;
+    float h(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+    void main() {
+      vec4 c = texture2D(tDiffuse, vUv);
+      float n = h(gl_FragCoord.xy) + h(gl_FragCoord.yx + 17.0) - 1.0;
+      c.rgb += n * (0.008 + 0.03 * dot(c.rgb, vec3(0.3, 0.5, 0.2)));
+      gl_FragColor = vec4(max(c.rgb, 0.0), 1.0);
+    }
+  `,
+};
 
 /** Builds the scene in a new canvas inside `host`. Each scene gets its own canvas: a canvas whose WebGL context was released
  *  cannot be reused (React's development mode mounts every effect twice). Returns null when WebGL is not available, so the
@@ -169,7 +196,8 @@ export function createFlameScene(host: HTMLElement, opts: { still: boolean }): F
     vertexShader: VERT, fragmentShader: GAS_FRAG, side: THREE.BackSide, transparent: true, premultipliedAlpha: true,
     depthTest: false, depthWrite: false,
     uniforms: {
-      uR: { value: 1 }, uDrop: { value: 0.1 }, uColor: { value: new THREE.Color() }, uLum: { value: 1 }, uSoot: { value: 0 },
+      uR: { value: 1 }, uDrop: { value: 0.1 }, uInner: { value: new THREE.Vector3() }, uPeak: { value: new THREE.Vector3() },
+      uRim: { value: new THREE.Vector3() }, uLum: { value: 1 }, uSoot: { value: 0 },
       uTime: { value: 0 }, uEdge: { value: 10 }, uCut: { value: 0 },
     },
   });
@@ -181,7 +209,7 @@ export function createFlameScene(host: HTMLElement, opts: { still: boolean }): F
   const drop = new THREE.Mesh(sphere, dropMat);
   gas.renderOrder = 2;
 
-  // three faint great circles at the largest flame size of this burn: a fixed reference to judge growth and orientation by
+  // three faint great circles at the largest flame size of this burn, shown with the cutaway only: a photograph has none
   const ringPts = Array.from({ length: 129 }, (_, i) => { const a = (i / 128) * Math.PI * 2; return new THREE.Vector3(Math.cos(a), Math.sin(a), 0); });
   const ringGeo = new THREE.BufferGeometry().setFromPoints(ringPts);
   const ringMat = new THREE.LineBasicMaterial({ color: 0x93a1b8, transparent: true, opacity: 0.07, depthWrite: false });
@@ -195,10 +223,11 @@ export function createFlameScene(host: HTMLElement, opts: { still: boolean }): F
 
   // High dynamic range, then bloom (the soft glow a lens puts around anything bright), then tone mapping to the screen
   const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.22, 0.5, 0.12);
+  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.2, 0.45, 0.35);
   composer.addPass(new RenderPass(scene, camera));
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
+  composer.addPass(new ShaderPass(GRAIN));
   composer.setPixelRatio(dpr);
 
   let dirty = true, animate = false, raf = 0, viewCb: (() => void) | null = null;
@@ -236,7 +265,7 @@ export function createFlameScene(host: HTMLElement, opts: { still: boolean }): F
     },
     onView(cb) { viewCb = cb; },
     frame(f) {
-      const R = f.df / 2, on = R > 0, color = linear(f.fuel);
+      const R = f.df / 2, on = R > 0, [inner, peak, edge] = GLOW[f.fuel];
       const rDrop = Math.max(f.d / 2, 1.5 / api.pxPerMm());   // the droplet keeps at least a visible dot, like the flat drawing
       const fade = f.retreat == null ? 1 : Math.max(0, 1 - f.retreat);
 
@@ -246,7 +275,7 @@ export function createFlameScene(host: HTMLElement, opts: { still: boolean }): F
         gas.scale.setScalar(R * BOUND);
         u.uR.value = R;
         u.uDrop.value = f.d > 0 ? rDrop / R : 0;
-        u.uColor.value.copy(color);
+        u.uInner.value.set(...inner); u.uPeak.value.set(...peak); u.uRim.value.set(...edge);
         u.uLum.value = f.lum;
         u.uSoot.value = f.soot;
         u.uEdge.value = f.retreat == null ? 10 : 1.4 - 2.8 * f.retreat;   // same sweep as the flat drawing, in flame radii
@@ -254,12 +283,12 @@ export function createFlameScene(host: HTMLElement, opts: { still: boolean }): F
       }
       drop.visible = f.d > 0;
       drop.scale.setScalar(rDrop);
-      dropMat.uniforms.uColor.value.copy(color);
+      dropMat.uniforms.uColor.value.setRGB(...peak);
       dropMat.uniforms.uLum.value = on ? f.lum * fade * (f.cut ? 0.6 : 1) : 0;
       dropMat.uniforms.uSoot.value = on ? f.soot * fade : 0;
       dropMat.uniforms.uIndex.value = INDEX[f.fuel];
 
-      rings.visible = f.dfMax > 0;
+      rings.visible = f.cut && f.dfMax > 0;
       rings.scale.setScalar(f.dfMax / 2);
       animate = on && f.soot > 0.01 && !opts.still;
       dirty = true;
