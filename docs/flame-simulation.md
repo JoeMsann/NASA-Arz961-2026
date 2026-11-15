@@ -54,10 +54,9 @@ These runs burned at 18 to 20% O₂. At other oxygen levels the line is multipli
 
 ## Not drawn
 
-- Oscillations at about 1 Hz before radiative extinction (some runs only).
 - The cool flame that kept large heptane droplets burning after the visible flame went out (Nayagam et al. 2012, [doi:10.1016/j.combustflame.2012.07.012](https://doi.org/10.1016/j.combustflame.2012.07.012)). The status line mentions it.
 - Droplet break-up (32 of 108 heptane runs and 23 of 153 methanol runs), drift and the igniters.
-- Flicker under gravity, and how gravity changes burn rate and extinction: the two models are zero-gravity only.
+- How gravity changes burn rate and extinction: the two models are zero-gravity only.
 
 ## Physics estimates
 
@@ -68,15 +67,17 @@ The two models predict whether the flame goes out and how fast the droplet burns
 | Flame temperature | Energy balance for one mole of fuel burned with just enough atmosphere: T = 298 K + LHV / Σ nᵢ·cpᵢ over the products and the inert gas drawn in. cp at 1200 K: CO₂ 56.21, H₂O 43.87, N₂ 33.71, He 20.79 J/(mol·K) (the constant-cp shortcut in Turns, *An Introduction to Combustion*, ch. 2). LHV of the liquid: heptane 4465, methanol 638 kJ/mol | Radiative loss, so it is an upper bound. Dissociation: above 2500 K the value is replaced by "above 2,500 K". Gives 2385 K for heptane in air and 2207 K for methanol in air; the shortcut is known to run on the order of 100 K high for fuel-air flames |
 | Heat release per flame area | q = ρ·K·d·LHV / (4·d_f²): the d² law burns (π/4)·ρ·K·d of fuel per second, all of it at the flame, a sphere of diameter d_f. Brightness = (q / 25 kW/m²)^0.6, limited to 0.05 to 2.5 | Finite-rate chemistry: a real flame weakens before it goes out, so the "goes out" ending is also dimmed (previous table). 25 kW/m² and the 0.6 display curve are choices |
 | Soot index | Heptane only: clamp((T − 1600 K)/(2300 K − 1600 K), 0, 1.6) × pressure in atm × (d₀/3 mm)², limited to 1.6. The yellow is index × e^(−t/τ), τ = 0.4 s × index (0.25 to 3). Glow colour: Planck radiance at 0.61, 0.55 and 0.465 µm for 0.85 × flame temperature | A rule of thumb. Basis for each factor: soot forms in diffusion flames above roughly 1600 K (Glassman); soot rises with pressure; soot needs residence time, which scales with flame size squared. The exponents, the 0.85 and the reference point (index 1 = what FLEX saw at 1 atm, 3 mm, 18 to 20% O₂) are choices. Methanol: none, as observed |
+| Flicker | Rate: f = 0.48·√(g/d_f), from the measured rule f = 1.5/√D Hz at 1 g for buoyant flames D metres wide (Cetegen and Ahmed 1993). About 11 Hz for a 3 mm heptane droplet's flame on Earth, 5 Hz at the Moon base. Strength: r²/(r² + 36) of the buoyancy ratio r | The rate rule was measured on burners and pool fires far larger than a droplet flame. The strength, and how the flicker moves the outline (a bulge and neck travelling up, the tip bobbing ±11%, a lean, wrinkles carried upward), are illustration |
+| Pre-extinction pulsing | Heptane, "goes out" ending, zero gravity: brightness ±24% and size ±4% at 1 Hz, growing over the last 3 s (at most 40% of the burn) | The paper reports pulsing at about 1 Hz before radiative extinction in some runs only. Here every such burn shows it; the amplitude is a choice |
 | Buoyancy ratio | √(g·d_f) ÷ (2·D/d_f): speed of hot gas rising past the flame against the speed of diffusion across its radius, D = 3 cm²/s ÷ pressure in atm | D is an order of magnitude. The ratio is physics; the drawn stretch, 1 + 2.5·r²/(r² + 9), is an illustration. There is no partial-gravity test in PSI to set it by. Under gravity the yellow is kept on (0.8 × index at ratio ≥ 3), as in a candle |
 
-What the sliders do through these: more oxygen means a hotter flame, more soot and a smaller, brighter flame; CO₂ cools it and removes the soot; pressure and droplet size add soot; a larger droplet has a dimmer flame; gravity makes a teardrop.
+What the sliders do through these: more oxygen means a hotter flame, more soot and a smaller, brighter flame; CO₂ cools it and removes the soot; pressure and droplet size add soot; a larger droplet has a dimmer flame; gravity pulls the flame upward and, when strong enough, makes it flicker.
 
 Checked values (`physics()` called directly): heptane in air 2385 K, index 1.12, ratio 0; with 70% CO₂ 1804 K, index 0.29; Moon base (30% O₂, 10.2 psi, 0.166 g) above 2500 K, ratio 3.2, stretch 2.35; Earth ratio 14.5, stretch 3.4; a 1 mm droplet index 0.12, a 5 mm droplet 1.6; 10⁻⁵ g ratio 0.05, stretch 1.00.
 
 Under gravity the droplet sizes and times shown still come from the zero-gravity models, and the card says so. A real droplet at 1 g burns faster.
 
-The heat capacities, heating values and densities are textbook values and the two literature pointers (Turns, Glassman) were written from memory. Check them before citing.
+The heat capacities, heating values and densities are textbook values and the three literature pointers (Turns, Glassman, Cetegen and Ahmed) were written from memory. Check them before citing.
 
 ## 3D view
 
@@ -88,7 +89,7 @@ The flame is rendered as glowing gas, not as a painted surface. A fragment shade
 | --- | --- | --- |
 | Flame | Emission peaks at 0.9 flame radii, falls off outward with a Gaussian width of 0.075 and inward more slowly (width 0.11), so the edge is soft and the rim brighter than the middle. Colour runs from teal inside through cyan to violet at the edge; methanol is a paler, more even blue. A fixed ±8% mottling. Brightness scales with `lum` | Diameter: model and paper. Brightness: estimate. Profile, colours and mottling: drawing choices (hydrocarbon flames glow blue-green from C₂ on the fuel side and blue from CH) |
 | Soot | Emitting and absorbing cloud inside the flame, density = `soot` × a slow noise field. Thick lines of sight burn out to white-yellow, thin ones stay orange | Strength, duration and colour: estimate. Position and texture: decoration (FLEX images do not resolve soot structure) |
-| Teardrop | With stretch > 1 the flame is drawn out upward by that factor, narrows to 30% at the tip and sits closer to the droplet below | Illustration (see "Physics estimates") |
+| Buoyant shape | With stretch > 1 the flame is drawn out upward by that factor and sits closer to the droplet below. The outline changes with the stretch: the tip narrows to 72% of the width at weak buoyancy (a blunt egg) and to 20% at strong buoyancy, where the whole flame is also 18% narrower. Flicker moves it in time (see "Physics estimates"). Everything that moves is a function of the time since ignition, so a paused frame is still and scrubbing is repeatable | Illustration |
 | Droplet | Sphere of diameter `d`, at least 1.5 px across. Fresnel reflection from the liquid's refractive index (heptane 1.39, methanol 1.33), lit by the flame and soot, plus a faint fill light so the leftover droplet is visible after the flame is out | Diameter: data. Refractive indices: handbook values. Everything else: drawing choice |
 | Needles | Two opposed steel needles, 0.4 mm thick, tips at 1.15 times the largest flame radius, lit by the flame. A toggle hides them | FLEX deployed droplets from two opposed needles and retracted them before ignition. Thickness and distance: drawing choices; the table records neither |
 | Cutaway | "Cut flame in half" skips gas with x > 0, so the gap between droplet and flame (standoff) can be seen from the side. Guide rings at the largest flame size show with it | Drawing aid |
@@ -96,9 +97,9 @@ The flame is rendered as glowing gas, not as a painted surface. A fragment shade
 | Lens and sensor | Bloom (strength 0.2), Khronos neutral tone mapping, a little grain | Drawing choice |
 | Scale bar | CSS pixels per mm at the droplet's depth, updated as the view is turned or zoomed. Field of view is 30°, so perspective changes sizes little | Exact at the droplet |
 
-Reduced motion: the soot texture does not animate.
+Reduced motion: the simulation starts paused, and nothing moves while it is paused.
 
-Checks run for the 3D view and the estimates: `npx tsc --noEmit` clean. In the Browser pane against `next dev` and the ml service: heptane on the ISS preset (ignition, mid-burn, cutaway, radiative retreat), Earth and Moon base (teardrop), 60% CO₂ (no visible soot), a 5 mm droplet (heavy soot), needles on, methanol mid-burn, switching to the camera view and back. Not checked: phones and touch, browsers other than Chromium, reduced-motion mode, frame rate on low-end GPUs, the Docker images, `services/agent/test_graph.py` (the agent was not touched).
+Checks run for the 3D view and the estimates: `npx tsc --noEmit` clean. In the Browser pane against `next dev` and the ml service: heptane on the ISS preset (ignition, mid-burn, cutaway, radiative retreat), Earth and Moon base (teardrop), 60% CO₂ (no visible soot), a 5 mm droplet (heavy soot), needles on, methanol mid-burn, switching to the camera view and back; three Earth frames 35 ms apart (the outline differs in each); Moon base with methanol (blunt egg) and heptane (teardrop); two ISS frames half a second apart near extinction (pulsing). Not checked: phones and touch, browsers other than Chromium, reduced-motion mode, frame rate on low-end GPUs, the Docker images, `services/agent/test_graph.py` (the agent was not touched).
 
 ## Data notes found on the way
 

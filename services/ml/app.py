@@ -378,6 +378,12 @@ Q_REF, LUM_GAMMA = 25.0, 0.6  # kW/m2 shown at brightness 1 (a 3 mm heptane drop
 FADE_PART = 0.25             # a flame that goes out dims over this last part of the burn, down to LUM_END
 D_HOT = 3.0e-4               # m2/s: diffusivity of hot flame gas at 1 atm, order of magnitude (air at ~1500 K)
 STRETCH_MAX, STRETCH_HALF = 2.5, 3.0   # shape illustration: how far the teardrop stretches, and the ratio at which it is half way
+# Buoyant flames flicker: rising hot gas rolls up into a vortex that squeezes the flame, again and again. Measured flicker
+# frequencies follow f = 1.5 / sqrt(D) Hz at 1 g for a flame D metres wide (Cetegen and Ahmed 1993), which is
+# f = 0.48 sqrt(g / D) for any gravity. About 11 Hz for a 2 cm flame on Earth, as for a candle.
+FLICKER_C = 0.48
+FLICKER_HALF = 6.0   # illustration: buoyancy ratio at which the flicker is drawn at half strength (small flames burn steadily)
+PULSE_HZ = 1.0       # FLEX: some flames pulsed about once a second before going out radiatively (Dietrich et al. 2014)
 
 
 def _blackbody(T):
@@ -421,7 +427,9 @@ def physics(fuel, f, gravity_g):
         "gravity_g": gravity_g, "buoyancy_ratio": round(ratio, 2),
         # how far the drawing stretches the flame upward: 1 = round. An illustration: no test here ran in partial gravity
         "stretch": round(1 + STRETCH_MAX * ratio ** 2 / (ratio ** 2 + STRETCH_HALF ** 2), 2),
-        "q_ref": Q_REF,
+        "flicker_hz": round(FLICKER_C * math.sqrt(gravity_g * 9.81 / df0), 1),
+        "flicker_amp": round(ratio ** 2 / (ratio ** 2 + FLICKER_HALF ** 2), 2),   # 0 = steady, 1 = full flicker
+        "pulse_hz": PULSE_HZ, "q_ref": Q_REF,
     }
 
 

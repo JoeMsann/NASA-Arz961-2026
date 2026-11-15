@@ -30,6 +30,10 @@ export type FlameFrame = {
   sootGain: number;       // how brightly the soot glows relative to the reference flame
   stretch: number;        // 1 = round; above 1 the flame is drawn pulled upward by buoyancy (an illustration)
   needles: boolean;       // show the two fuel deployment needles
+  time: number;           // seconds since ignition: everything that moves is a function of it, so a paused frame is still
+  flickerHz: number;      // how often the buoyant flame flickers (0 without gravity)
+  flickerAmp: number;     // how strongly, 0 to 1
+  pulse: number;          // -1 to 1: the slow pulsing some flames showed before going out; scales brightness and size a little
 };
 export type FlameScene = {
   frame(f: FlameFrame): void;
@@ -80,6 +84,8 @@ const GAS_FRAG = /* glsl */ `
   uniform float uCut;      // 1 = only the half with x < 0
   uniform vec3 uSootCol;   // soot glow colour times its strength
   uniform float uStretch;  // 1 = round flame; above 1 = pulled upward by buoyancy
+  uniform float uFlickHz; uniform float uFlickAmp;   // flicker of the buoyant flame: frequency, and strength 0 to 1
+  uniform float uPulse;    // slow pulsing before extinction, -1 to 1
   const int STEPS = 96;
   const float BOUND = ${BOUND.toFixed(3)}, RC = ${RC.toFixed(4)}, OUT = ${OUT.toFixed(4)}, IN = ${IN.toFixed(4)};
 
@@ -91,19 +97,29 @@ const GAS_FRAG = /* glsl */ `
   }
   float fbm(vec3 p) { return 0.55 * noise(p) + 0.3 * noise(p * 2.1 + 3.7) + 0.15 * noise(p * 4.3 - 1.3); }
 
-  // Buoyancy: maps a point of the teardrop flame back onto the round one. Above the droplet the flame is drawn out by
-  // uStretch and narrows toward its tip; below, it sits closer to the droplet, where fresh gas flows in.
-  vec3 warp(vec3 p) {
-    if (uStretch < 1.002) return p;
-    float w = mix(1.0, 0.3, smoothstep(0.0, 1.05, max(p.y, 0.0) / uStretch));
-    float sy = p.y > 0.0 ? uStretch : mix(1.0, 0.7, min(uStretch - 1.0, 1.0));
-    return vec3(p.x / w, p.y / sy, p.z / w);
+  // Buoyancy: maps a point of the buoyant flame back onto the round one, and returns how far up the flame it is (0 at the
+  // droplet, about 1 at the tip). Above the droplet the flame is drawn out by uStretch; below, it sits closer to the
+  // droplet, where fresh gas flows in. Weak buoyancy gives a blunt egg; strong buoyancy a narrower flame with a sharp tip.
+  // The flicker: once per cycle a ring of rising hot gas squeezes the flame, so a bulge and a neck travel up it, the tip
+  // bobs, and the whole plume leans a little this way and that.
+  vec4 warp(vec3 p) {
+    if (uStretch < 1.002) return vec4(p, 0.0);
+    float strong = smoothstep(1.0, 3.4, uStretch);
+    float ph = 6.2832 * uFlickHz * uTime;
+    float s = uStretch * (1.0 + 0.11 * uFlickAmp * sin(ph));
+    float up = max(p.y, 0.0) / s;
+    float w = mix(1.0, mix(0.72, 0.2, strong), smoothstep(0.0, 1.05, up)) * mix(1.0, 0.82, strong * smoothstep(0.0, 0.5, up));
+    w *= 1.0 + 0.42 * uFlickAmp * up * sin(ph - 7.5 * up);
+    vec2 lean = 0.55 * uFlickAmp * up * up * vec2(noise(vec3(uTime * uFlickHz * 0.37, 0.5, 3.0)) - 0.5,
+                                                  noise(vec3(7.0, uTime * uFlickHz * 0.31, 1.5)) - 0.5);
+    float sy = p.y > 0.0 ? s : mix(1.0, 0.7, min(uStretch - 1.0, 1.0));
+    return vec4((p.x - lean.x) / w, p.y / sy, (p.z - lean.y) / w, up);
   }
 
   void main() {
     vec3 ro = cameraPosition / uR, rd = normalize(vWorld - cameraPosition);
     float b = dot(ro, rd), c = dot(ro, ro);
-    float bound = BOUND * max(uStretch, 1.0);
+    float bound = BOUND * max(uStretch, 1.0) * (1.0 + 0.15 * uFlickAmp);
     float h = b * b - (c - bound * bound);
     if (h < 0.0) discard;
     h = sqrt(h);
@@ -119,7 +135,10 @@ const GAS_FRAG = /* glsl */ `
     float trans = 1.0;
     for (int i = 0; i < STEPS; i++) {
       vec3 p = ro + rd * (t0 + (float(i) + jitter) * dt);
-      float r = length(warp(p));
+      vec4 q = warp(p);
+      float r = length(q.xyz) / (1.0 + 0.05 * uPulse);
+      // wrinkles carried up the flame with the gas, stronger toward the tip
+      if (uFlickAmp > 0.01) r *= 1.0 + 0.22 * uFlickAmp * q.w * (noise(vec3(p.x * 2.4, p.y * 1.5 - uTime * uFlickHz * 0.9, p.z * 2.4)) - 0.5);
       float keep = (1.0 - smoothstep(uEdge - 0.3, uEdge, p.x)) * (uCut > 0.5 ? step(p.x, 0.0) : 1.0);
       if (keep <= 0.0) continue;
       float d = r - RC;
@@ -211,7 +230,7 @@ const GRAIN = {
 /** Builds the scene in a new canvas inside `host`. Each scene gets its own canvas: a canvas whose WebGL context was released
  *  cannot be reused (React's development mode mounts every effect twice). Returns null when WebGL is not available, so the
  *  caller can fall back to the flat drawing. */
-export function createFlameScene(host: HTMLElement, opts: { still: boolean }): FlameScene | null {
+export function createFlameScene(host: HTMLElement): FlameScene | null {
   const canvas = document.createElement("canvas");
   canvas.style.cssText = "display:block;width:100%;height:100%;touch-action:none";
   host.appendChild(canvas);
@@ -243,6 +262,7 @@ export function createFlameScene(host: HTMLElement, opts: { still: boolean }): F
       uRim: { value: new THREE.Vector3() }, uLum: { value: 1 }, uSoot: { value: 0 },
       uTime: { value: 0 }, uEdge: { value: 10 }, uCut: { value: 0 },
       uSootCol: { value: new THREE.Vector3(1, 0.5, 0.1) }, uStretch: { value: 1 },
+      uFlickHz: { value: 0 }, uFlickAmp: { value: 0 }, uPulse: { value: 0 },
     },
   });
   const dropMat = new THREE.ShaderMaterial({
@@ -289,8 +309,7 @@ export function createFlameScene(host: HTMLElement, opts: { still: boolean }): F
   composer.addPass(new ShaderPass(GRAIN));
   composer.setPixelRatio(dpr);
 
-  let dirty = true, animate = false, raf = 0, viewCb: (() => void) | null = null;
-  const t0 = performance.now();
+  let dirty = true, raf = 0, viewCb: (() => void) | null = null;
 
   const size = () => {
     const w = Math.max(canvas.clientWidth, 1), h = Math.max(canvas.clientHeight, 1);
@@ -333,13 +352,14 @@ export function createFlameScene(host: HTMLElement, opts: { still: boolean }): F
       gas.visible = on;
       if (on) {
         const u = gasMat.uniforms;
-        gas.scale.setScalar(R * BOUND * Math.max(f.stretch, 1));
+        gas.scale.setScalar(R * BOUND * Math.max(f.stretch, 1) * (1 + 0.15 * f.flickerAmp));
         u.uStretch.value = f.stretch;
+        u.uTime.value = f.time; u.uFlickHz.value = f.flickerHz; u.uFlickAmp.value = f.flickerAmp; u.uPulse.value = f.pulse;
         u.uSootCol.value.set(f.sootRgb[0] * f.sootGain, f.sootRgb[1] * f.sootGain, f.sootRgb[2] * f.sootGain);
         u.uR.value = R;
         u.uDrop.value = f.d > 0 ? rDrop / R : 0;
         u.uInner.value.set(...inner); u.uPeak.value.set(...peak); u.uRim.value.set(...edge);
-        u.uLum.value = f.lum;
+        u.uLum.value = f.lum * (1 + 0.3 * f.pulse);
         u.uSoot.value = f.soot;
         u.uEdge.value = f.retreat == null ? 10 : 1.4 - 2.8 * f.retreat;   // same sweep as the flat drawing, in flame radii
         u.uCut.value = f.cut ? 1 : 0;
@@ -362,7 +382,6 @@ export function createFlameScene(host: HTMLElement, opts: { still: boolean }): F
       }
       rings.visible = f.cut && f.dfMax > 0;
       rings.scale.setScalar(f.dfMax / 2);
-      animate = on && f.soot > 0.01 && !opts.still;
       dirty = true;
     },
     dispose() {
@@ -381,8 +400,7 @@ export function createFlameScene(host: HTMLElement, opts: { still: boolean }): F
   const loop = () => {
     raf = requestAnimationFrame(loop);
     const moved = controls.update();
-    if (animate) gasMat.uniforms.uTime.value = (performance.now() - t0) / 1000;
-    if (dirty || moved || animate) {
+    if (dirty || moved) {
       composer.render();
       dirty = false;
     }

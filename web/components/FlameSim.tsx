@@ -15,6 +15,7 @@ type Source = { cite: string; url: string };
 type Physics = {
   t_flame_k: number; t_high: boolean; mix_over: boolean; n2_pct: number; soot_index: number; soot_t_k: number;
   soot_rgb: [number, number, number]; soot_gain: number; gravity_g: number; buoyancy_ratio: number; stretch: number; q_ref: number;
+  flicker_hz: number; flicker_amp: number; pulse_hz: number;
 };
 export type Flame = {
   fuel: "Heptane" | "Methanol"; k: number; d0: number; default: Ending; out: Burn | null; burnout: Burn;
@@ -128,6 +129,14 @@ function draw(cv: HTMLCanvasElement, fuel: Flame["fuel"], b: Burn, t: number, fo
   ctx.fillText(`${t.toFixed(1)} s`, W - 14 * dpr, y0);
 }
 
+const PULSE_S = 3;   // the pulsing builds up over this long before the flame goes out (at most 40% of the burn)
+/** Slow pulsing before a radiative extinction, -1 to 1 times its strength. FLEX saw it in some heptane runs only. */
+function pulse(b: Burn, t: number, hz: number) {
+  if (b.mode !== "radiative") return 0;
+  const end = b.t[b.t.length - 1], span = Math.min(PULSE_S, 0.4 * end), a = Math.min(Math.max((t - (end - span)) / span, 0), 1);
+  return 0.8 * a * a * Math.sin(2 * Math.PI * hz * t);
+}
+
 /** What the 3D scene draws at time t: the same interpolated numbers as the flat drawing. */
 function frame3(flame: Flame, b: Burn, t: number, cut: boolean, needles: boolean) {
   const end = b.t[b.t.length - 1], s = sample(b, t), alive = t < end && s.df > 0, into = t - (end - b.retreat_s), ph = flame.physics;
@@ -135,6 +144,7 @@ function frame3(flame: Flame, b: Burn, t: number, cut: boolean, needles: boolean
     fuel: flame.fuel, d: t >= end ? b.d_end : s.d, df: alive ? s.df : 0, lum: s.lum, soot: s.soot,
     retreat: alive && b.retreat_s > 0 && into > 0 ? into / b.retreat_s : null, dfMax: Math.max(...b.df), cut,
     sootRgb: ph.soot_rgb, sootGain: ph.soot_gain, stretch: ph.stretch, needles,
+    time: t, flickerHz: ph.flicker_hz, flickerAmp: ph.flicker_amp, pulse: alive ? pulse(b, t, ph.pulse_hz) : 0,
   };
 }
 
@@ -193,7 +203,7 @@ export default function FlameSim({ flame, gravity, extrapolating }: { flame: Fla
   useEffect(() => {
     const el = glHost.current;
     if (view !== "3d" || !el) return;
-    const sc = createFlameScene(el, { still: still() });
+    const sc = createFlameScene(el);
     if (!sc) { setGl(false); setView("2d"); return; }
     scene3.current = sc;
     sc.onView(() => setPxmm(sc.pxPerMm()));
@@ -229,7 +239,8 @@ export default function FlameSim({ flame, gravity, extrapolating }: { flame: Fla
     ? b.mode === "burnout" ? "All the fuel burned. The flame shrank with the droplet until nothing was left."
       : `Out. A droplet ${fmt(b.d_end, 2)} mm across is left.${heptane ? " In FLEX, large heptane droplets often kept burning at this point with an invisible cool flame (not drawn)." : ""}`
     : b.retreat_s > 0 && t > end - b.retreat_s ? "Going out: the flame dies on one side first and the dark region sweeps across."
-      : buoyant ? `Burning at ${fmt(gravity, 2)} g: hot gas rises and pulls the flame into a teardrop (shape is an illustration).`
+      : buoyant ? `Burning at ${fmt(gravity, 2)} g: hot gas rises and pulls the flame upward${ph.flicker_amp >= 0.15 ? `, flickering about ${fmt(ph.flicker_hz, 0)} times a second` : ", burning steadily"} (shape is an illustration).`
+        : alive && Math.abs(pulse(b, t, ph.pulse_hz)) > 0.05 ? "Pulsing about once a second: the flame is close to going out."
         : s.soot > 0.3 ? "Soot inside the flame glows yellow; as it thins the flame turns blue."
           : "Burning: a steady blue ball around the droplet.";
   const label = `Simulated ${fuel} droplet flame in microgravity: a round blue flame up to ${fmt(Math.max(...b.df), 0)} mm across around a `
@@ -351,7 +362,8 @@ A {fuel} droplet burning{buoyant ? "" : " in microgravity"}, drawn to scale and 
           </li>
           <li>
             <b>Shape.</b> {buoyant
-              ? <>A teardrop, because the selected place has gravity. See the gravity estimate below.</>
+              ? <>Pulled upward, because the selected place has gravity: a blunt egg when buoyancy is weak, a narrow flame with a
+                sharp tip when it is strong. See the gravity estimate below.</>
               : <>A sphere centred on the droplet, steady, with no flicker. A candle&apos;s flicker and teardrop shape both come from
                 buoyancy, and the FLEX chamber typically stayed below one hundred-thousandth of Earth&apos;s gravity.</>}
           </li>
@@ -365,7 +377,12 @@ A {fuel} droplet burning{buoyant ? "" : " in microgravity"}, drawn to scale and 
               : "Methanol flames went out diffusively: visible in one video frame and gone in the next."}
           </li>
           <li>
-            <b>Not drawn.</b> The pulsing at about once a second that some flames showed just before going out radiatively.
+            <b>Pulsing.</b> {heptane
+              ? "Some FLEX flames pulsed about once a second before going out radiatively. The 3D view draws that for every heptane burn that goes out, growing over the last few seconds: brightness by up to a quarter and size by a few percent. How strong it was in any one test is not recorded."
+              : "Methanol flames went out without the slow pulsing some heptane flames showed, so none is drawn."}
+          </li>
+          <li>
+            <b>Not drawn.</b>
             {heptane && <> The invisible cool flame on which large heptane droplets kept burning after the visible flame went out
               (<a href={flame.sources.cool_flame.url} target="_blank" rel="noreferrer">Nayagam et al. 2012</a>).</>}
             {" "}Droplet break-up, which ended {flame.disrupted} of the {flame.runs} FLEX {fuel} runs used here and is left out of the extinction
@@ -409,7 +426,7 @@ A {fuel} droplet burning{buoyant ? "" : " in microgravity"}, drawn to scale and 
             <b>Gravity: buoyancy ratio {fmt(ph.buoyancy_ratio, 2)}.</b> The speed of hot gas rising past the flame, √(g × flame
             diameter), divided by the speed at which gas diffuses across the flame. Far below 1 the flame stays round, as in orbit; far
             above 1 it is a teardrop, as on Earth. {buoyant
-              ? "The ratio itself is physics. How far the drawing stretches for a given ratio is an illustration: the dataset has no partial-gravity test to set it by. Under gravity soot also keeps forming in the rising gas, as in a candle, so the yellow does not fade."
+              ? `The ratio itself is physics. How far the drawing stretches for a given ratio, and how the outline changes, are an illustration: the dataset has no partial-gravity test to set them by. Under gravity soot also keeps forming in the rising gas, as in a candle, so the yellow does not fade. Flicker: rising hot gas rolls up into a ring that squeezes the flame over and over. Its rate follows a measured rule for buoyant flames, 0.48 × √(g ÷ flame width), which gives ${fmt(ph.flicker_hz, 1)} times a second here. Its strength (${Math.round(ph.flicker_amp * 100)}% of full) grows with the ratio, since small flames in weak gravity burn steadily; that part is an illustration too.`
               : "Here the flame is drawn round."}
           </li>
         </ul>
