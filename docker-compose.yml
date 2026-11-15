@@ -24,6 +24,7 @@ services:
     environment:
       ML_URL: http://ml:8001
       AGENT_URL: http://agent:8002
+      MCP_LOG_JSON: ${MCP_LOG_JSON:-0}     # 1 = also print every JSON message.  docker compose logs -f mcp
     ports: ["8003:8003"]
     depends_on: [ml, agent]
 

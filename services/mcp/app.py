@@ -4,8 +4,11 @@ A thin layer over the other two services. Every tool forwards to an endpoint the
 chatbot sees the same numbers as the dashboard. Nothing is computed or stored here.
 
   cd services/mcp && uvicorn app:app --port 8003        # endpoint: http://localhost:8003/mcp
+
+The log (docker compose logs -f mcp) shows one line per event: a new client, a tool list, a tool call, its answer.
+Set MCP_LOG_JSON=1 to also print every JSON message received and sent. Set NO_COLOR=1 for plain text.
 """
-import os
+import json, logging, os, time
 from typing import Annotated, Any
 import httpx
 from mcp.server.mcpserver import MCPServer
@@ -37,9 +40,31 @@ O2 = Annotated[float, Field(ge=5, le=100, description="Oxygen, percent by volume
 PRESSURE = Annotated[float, Field(ge=1, le=50, description="Total pressure, psi absolute (1 to 50). 14.7 = 1 atm")]
 
 
-async def call(base: str, path: str, params: dict | None = None, body: dict | None = None) -> Any:
+# ------------------------------------------------------------------ log
+LOG_JSON = os.environ.get("MCP_LOG_JSON", "").lower() in ("1", "true", "yes", "on")
+COLOR = not os.environ.get("NO_COLOR")
+JSON_CHARS = 2000   # longest JSON message printed in full
+STYLE = {"new": "1;32", "list": "36", "call": "1;33", "ok": "32", "error": "1;31", "service": "2", "other": "2", "json": "35"}
+for _noisy in ("uvicorn.access", "httpx", "mcp"):   # this log replaces their per-request lines; warnings still show
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
+
+def log(kind: str, label: str, text: str):
+    line = f"{label:<11} {text}"
+    print(f"{time.strftime('%H:%M:%S')}  " + (f"\033[{STYLE[kind]}m{line}\033[0m" if COLOR else line), flush=True)
+
+
+def _size(n: int) -> str:
+    return f"{n} B" if n < 1000 else f"{n / 1000:.1f} kB"
+
+
+def _clip(text: str, n: int) -> str:
+    return text if len(text) <= n else f"{text[:n]}... ({len(text)} characters)"
+
+
+async def call(base: str, path: str, params: dict | None = None, body: dict | None = None, quiet: bool = False) -> Any:
     """One request to the ml or agent service. A failure becomes a ToolError: a plain sentence the chatbot is shown."""
-    name = "ml" if base == ML else "agent"
+    name, start = "ml" if base == ML else "agent", time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=30) as c:
             if body is not None:
@@ -47,7 +72,12 @@ async def call(base: str, path: str, params: dict | None = None, body: dict | No
             else:
                 r = await c.get(base + path, params={k: v for k, v in (params or {}).items() if v is not None})
     except httpx.HTTPError as e:
+        if not quiet:
+            log("error", "  service", f"{name} {'POST' if body is not None else 'GET'} {path} -> no answer ({type(e).__name__})")
         raise ToolError(f"The {name} service did not answer ({type(e).__name__}). Check that it is running.") from None
+    if not quiet:
+        log("service" if r.status_code < 400 else "error", "  service",
+                f"{name} {r.request.method} {path} -> {r.status_code} | {_size(len(r.content))} | {(time.monotonic() - start) * 1000:.0f} ms")
     if r.status_code >= 400:
         try:
             detail = r.json().get("detail")
@@ -202,12 +232,120 @@ async def get_build_report() -> dict[str, Any]:
     return await call(ML, "/report")
 
 
+class LogTraffic:
+    """Wraps the web app and prints what passes through: who connected, what they asked for, what went back.
+    It only reads the traffic; nothing is changed."""
+
+    def __init__(self, app):
+        self.app, self.seen = app, set()
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["path"] == "/health":   # health checks would drown the log
+            return await self.app(scope, receive, send)
+        head = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope["headers"]}
+        chunks, more = [], True
+        while more:   # the whole request body, so the JSON can be read before the app handles it
+            m = await receive()
+            if m["type"] != "http.request":
+                break
+            chunks.append(m.get("body", b""))
+            more = m.get("more_body", False)
+        raw, replayed = b"".join(chunks), False
+
+        async def replay():
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return {"type": "http.request", "body": raw, "more_body": False}
+            return await receive()
+
+        try:
+            sent = json.loads(raw) if raw else None
+        except ValueError:
+            sent = None
+        msgs = [m for m in (sent if isinstance(sent, list) else [sent]) if isinstance(m, dict)]
+        asked = {m["id"]: m for m in msgs if "id" in m and "method" in m}
+        # behind the tunnel the caller's address arrives in a header; otherwise it is the socket's
+        ip = head.get("cf-connecting-ip") or head.get("x-forwarded-for", "").split(",")[0].strip() or (scope.get("client") or ["?"])[0]
+        who = f"{ip}{' via tunnel' if 'cf-ray' in head else ''} | {head.get('user-agent', 'no user-agent')[:50]}"
+        if LOG_JSON and raw:
+            log("json", "  json in", _clip(raw.decode("utf-8", "replace"), JSON_CHARS))
+        for m in msgs:
+            self.request(m, who, (ip, head.get("user-agent")))
+        if not msgs:
+            log("other", "HTTP", f"{scope['method']} {scope['path']} | {who}")
+
+        start, status, kind, out = time.monotonic(), 0, "", []
+
+        async def watch(m):
+            nonlocal status, kind
+            if m["type"] == "http.response.start":
+                status = m["status"]
+                kind = dict(m.get("headers") or []).get(b"content-type", b"").decode("latin-1")
+                if kind.startswith("text/event-stream"):
+                    log("other", "STREAM", f"event stream opened | {who}")
+            elif m["type"] == "http.response.body" and not kind.startswith("text/event-stream"):
+                out.append(m.get("body", b""))
+                if not m.get("more_body", False):
+                    self.response(b"".join(out), asked, status, (time.monotonic() - start) * 1000, bool(msgs))
+            await send(m)
+
+        await self.app(scope, replay, watch)
+
+    def request(self, m, who, caller):
+        method, p = m.get("method"), m.get("params") or {}
+        # a client names itself in its opening message (older protocol) or in every message (2026-07-28 protocol)
+        info = p.get("clientInfo") or (p.get("_meta") or {}).get("io.modelcontextprotocol/clientInfo") or {}
+        client = f"{info.get('name', 'unnamed client')} {info.get('version', '')}".strip() if info else None
+        if method in ("initialize", "server/discover") or caller not in self.seen:
+            self.seen.add(caller)
+            version = p.get("protocolVersion") or (p.get("_meta") or {}).get("io.modelcontextprotocol/protocolVersion")
+            log("new", "NEW CLIENT", " | ".join(x for x in (client, f"protocol {version}" if version else None, who) if x))
+        if method == "tools/list":
+            log("list", "LIST TOOLS", who)
+        elif method == "tools/call":
+            log("call", "CALL", f"{p.get('name')} {_clip(json.dumps(p.get('arguments') or {}), 300)}")
+        elif method and method not in ("initialize", "server/discover"):
+            log("other", "MESSAGE", method)
+
+    def response(self, raw, asked, status, ms, is_mcp):
+        tail = f"{_size(len(raw))} | {ms:.0f} ms"
+        if LOG_JSON and raw and is_mcp:
+            log("json", "  json out", _clip(raw.decode("utf-8", "replace"), JSON_CHARS))
+        try:
+            got = json.loads(raw) if raw else None
+        except ValueError:
+            got = None
+        answers = [a for a in (got if isinstance(got, list) else [got]) if isinstance(a, dict)]
+        if not is_mcp or not answers:
+            if status >= 400:
+                log("error", "HTTP", f"status {status} | {tail}")
+            elif not is_mcp:
+                log("other", "  reply", f"status {status} | {tail}")
+            return
+        for a in answers:
+            method = (asked.get(a.get("id")) or {}).get("method")
+            name = ((asked.get(a.get("id")) or {}).get("params") or {}).get("name")
+            res = a.get("result") or {}
+            if "error" in a:
+                log("error", "ERROR", f"{name or method or 'request'} | {a['error'].get('message')} | {tail}")
+            elif method == "tools/call" and res.get("isError"):
+                said = " ".join(c.get("text", "") for c in res.get("content") or [] if c.get("type") == "text")
+                log("error", "ERROR", f"{name} | {_clip(said, 300)} | {tail}")
+            elif method == "tools/call":
+                log("ok", "ANSWER", f"{name} | {tail}")
+            elif method == "tools/list":
+                log("list", "  tools", f"{len(res.get('tools') or [])} tools | {tail}")
+            else:
+                log("other", "  reply", f"{method or 'message'} | {tail}")
+
+
 @mcp.custom_route("/health", methods=["GET"])
 async def health(request):
     up = {}
     for name, base in (("ml", ML), ("agent", AGENT)):
         try:
-            await call(base, "/health")
+            await call(base, "/health", quiet=True)
             up[name] = True
         except ToolError:
             up[name] = False
@@ -217,5 +355,5 @@ async def health(request):
 # Plain JSON replies and no session state, so the endpoint works behind tunnels and proxies that buffer event streams
 # (Cloudflare quick tunnels do). Host-header checking is off because a tunnel's public hostname is not known in
 # advance; every tool is read-only and the data is public.
-app = mcp.streamable_http_app(json_response=True, stateless_http=True, host="0.0.0.0",
-                              transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False))
+app = LogTraffic(mcp.streamable_http_app(json_response=True, stateless_http=True, host="0.0.0.0",
+                                         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)))

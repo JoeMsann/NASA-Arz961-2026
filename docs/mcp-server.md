@@ -10,6 +10,7 @@ Lets a chatbot (Claude, Cursor, or anything else that speaks the Model Context P
 | Compose | `mcp` service, started by `docker compose up`. Optional `tunnel` service behind a profile | `docker-compose.yml` |
 | SQL endpoint | `POST /sql` on the `agent` service: the read-only SQL the Ask PSI agent already had, reachable without the language model | `services/agent/app.py` |
 | SQL time limit | A query is stopped after 2 seconds, so an endless recursive query cannot hang the service | `services/agent/tools.py`, `services/agent/test_graph.py` |
+| Log | One line per event in the container log: new client, tool list, tool call, answer or error, each in its own colour. Optional full JSON | `services/mcp/app.py`, `docker-compose.yml`, `.env.example` |
 | Test | A real MCP client calls every tool and compares the answers with the `ml` service | `services/mcp/test_mcp.py` |
 
 ## How it works
@@ -70,6 +71,42 @@ About the tunnel:
 - While it runs, anyone who has the address can call the tools. Stop it when the demo is over.
 - For a lasting address, deploy the three services somewhere public or use a named Cloudflare tunnel with your own domain.
 
+## Logs
+
+```bash
+docker compose logs -f mcp          # follow the MCP server
+docker compose logs -f tunnel       # the tunnel: its public address, and connection problems
+```
+
+Each event is one line. Times are UTC.
+
+```
+09:35:58  NEW CLIENT  claude-ai 0.1.0 | protocol 2025-06-18 | 160.79.104.10 via tunnel | Claude-User
+09:35:58  LIST TOOLS  160.79.104.10 via tunnel | Claude-User
+09:35:58    tools     10 tools | 10.4 kB | 6 ms
+09:35:58  CALL        predict_droplet_flame {"o2_pct": 21, "pressure_psia": 14.7}
+09:35:58    service   ml POST /predict -> 200 | 20.2 kB | 248 ms
+09:35:58  ANSWER      predict_droplet_flame | 10.3 kB | 270 ms
+09:35:58  CALL        sql_query {"query": "delete from tests"}
+09:35:58    service   agent POST /sql -> 200 | 54 B | 206 ms
+09:35:58  ERROR       sql_query | Error executing tool sql_query: Only a single SELECT statement is allowed. ...
+```
+
+| Line | Colour | Means |
+| --- | --- | --- |
+| `NEW CLIENT` | bold green | A chatbot opened a connection, or a caller not seen since the container started sent its first message. Shows the client's name and protocol version when it gives them, its address and whether it came through the tunnel |
+| `LIST TOOLS`, `tools` | cyan | The client asked which tools exist, and how many it was sent |
+| `CALL` | bold yellow | A tool call, with its arguments |
+| `service` | grey | The request the MCP server made to `ml` or `agent` for that call |
+| `ANSWER` | green | The reply sent back: size and total time |
+| `ERROR` | bold red | A tool call that failed, with the sentence the chatbot was shown; or a service that did not answer |
+| `json in`, `json out` | magenta | Only with `MCP_LOG_JSON=1`: the JSON message received and the one sent, cut at 2000 characters |
+| `MESSAGE`, `reply`, `HTTP`, `STREAM` | grey | Other protocol messages and plain web requests |
+
+Settings: put `MCP_LOG_JSON=1` in `.env` to print the JSON messages (then `docker compose up -d mcp` to apply). `NO_COLOR=1` in the `mcp` service's environment turns the colours off. `/health` requests are not logged.
+
+The log is the container's output only. Nothing is written to a file, and it is lost when the container is removed.
+
 ## How to check
 
 ```bash
@@ -92,10 +129,12 @@ Run on 15 November 2026 with Python 3.13 and the three services started directly
 - A request carrying a foreign `Host` header, as a tunnel sends, is accepted.
 - With the `ml` service stopped, a tool call returns "The ml service did not answer" and `/health` reports `"ml": false`.
 - `services/agent/test_graph.py` still passes with the new time limit.
+- The log: an older-protocol client with tunnel headers, a 2026-07-28 client, a successful call, a refused SQL statement, an unknown tool, a non-JSON request and a stopped `ml` service each produced the lines described under Logs. `test_mcp.py` passes with the log on.
 
 ## Not checked
 
 - The Docker image was not built and `docker compose up` was not run: no Docker daemon where this was written. The compose file was only parsed.
 - The tunnel was not started, so no hosted chatbot has connected yet. The local Claude Code and Cursor settings above were not tried either. The checks used the MCP Python client and plain HTTP requests.
 - `search_evidence` returned local results only: the NASA Technical Reports Server was not reachable from the test machine.
+- How the colours look in the Docker Desktop log window or an old Windows console. They were checked as escape codes, not on a Windows screen.
 - How well a given chatbot follows the data rules.
