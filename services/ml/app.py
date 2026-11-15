@@ -37,6 +37,7 @@ class PredictIn(BaseModel):
     co2_pct: float = Field(default=0, ge=0, le=80)
     he_pct: float = Field(default=0, ge=0, le=80)
     d0_mm: float = Field(default=3, ge=0.5, le=6)
+    gravity_g: float = Field(default=0, ge=0, le=1)   # used only by the physics estimates for the drawing, never by the models
 
 
 def dist(t, e: Env):
@@ -319,7 +320,7 @@ FSR_M_START, FSR_M_TAU = 0.76, 1.5            # methanol, Fig. 6: FSR starts at 
 FSR_H = {"start": 6.8, "slope": 5.4, "max": 15.0, "o2": 0.19}  # heptane, Figs. 3-4: FSR ~ 6.8 + 5.4 t/D0^2 at 18-20% O2
 SOOT_TAU = 0.4    # s; heptane's ignition glow is soot-yellow and "quickly" turns blue (paper text); the fade time is a drawing choice
 RETREAT_S = 0.25  # s; radiative extinction: the flame retreats from one side over 5-10 video frames at 30 fps
-LUM_END = 0.35    # brightness at the end relative to the start; qualitative ("brighter early, very dim near extinction")
+LUM_END = 0.35    # a flame that goes out dims to this fraction just before it does; qualitative ("very dim near extinction")
 NEAREST_OUT = 5   # closest FLEX runs that went out, used for the extinction diameter
 SAMPLES = 160
 _seen = {}
@@ -358,20 +359,99 @@ def _fsr(fuel, o2, t, d0):
     return np.minimum(FSR_H["start"] + FSR_H["slope"] * t / d0 ** 2, FSR_H["max"]) * _fsr_methanol(o2) / _fsr_methanol(FSR_H["o2"])
 
 
-def _burn(fuel, o2, d0, k, t_end):
+# ------------------------------------------------------------------ physics estimates for the drawing
+# Neither model output nor PSI data. Textbook energy balances and scaling rules, computed from the same inputs, so that how
+# the flame looks (brightness, soot, shape) responds to them. The interface labels every one of them as an estimate.
+# docs/flame-simulation.md gives the formulas and what each one leaves out.
+T0 = 298.0
+# Mean molar heat capacities, J/(mol K), taken at 1200 K: the usual constant-cp shortcut for flame temperature
+# (Turns, An Introduction to Combustion, ch. 2). Helium is 5/2 R at any temperature.
+CP = {"co2": 56.21, "h2o": 43.87, "n2": 33.71, "he": 20.79}
+# Per mole of fuel: O2 needed, CO2 and H2O made, lower heating value of the liquid (kJ/mol), molar mass (g/mol),
+# liquid density (kg/m3). `soots`: methanol makes no soot at FLEX pressures (Dietrich et al. 2014).
+FUEL = {"Heptane": {"o2": 11.0, "co2": 7, "h2o": 8, "lhv": 4465.0, "molar": 100.2, "rho": 684.0, "soots": 1.0},
+        "Methanol": {"o2": 1.5, "co2": 1, "h2o": 2, "lhv": 638.0, "molar": 32.04, "rho": 792.0, "soots": 0.0}}
+T_NO_DISSOCIATION = 2500.0   # above about this, real flames lose heat to dissociation and the estimate runs high
+T_SOOT_MIN, T_SOOT_REF = 1600.0, 2300.0   # soot starts to form in diffusion flames near 1600 K (Glassman); 2300 K ~ heptane in air
+T_SOOT_GLOW = 0.85           # soot glows on the cooler fuel side of the flame: drawn at this fraction of flame temperature (a choice)
+Q_REF, LUM_GAMMA = 25.0, 0.6  # kW/m2 shown at brightness 1 (a 3 mm heptane droplet in air at ignition), and the display curve
+FADE_PART = 0.25             # a flame that goes out dims over this last part of the burn, down to LUM_END
+D_HOT = 3.0e-4               # m2/s: diffusivity of hot flame gas at 1 atm, order of magnitude (air at ~1500 K)
+STRETCH_MAX, STRETCH_HALF = 2.5, 3.0   # shape illustration: how far the teardrop stretches, and the ratio at which it is half way
+
+
+def _blackbody(T):
+    """Planck radiance at red, green and blue wavelengths (0.61, 0.55, 0.465 um), arbitrary units."""
+    lam = np.array([0.610, 0.550, 0.465])
+    return lam ** -5 / (np.exp(14388.0 / (lam * T)) - 1)
+
+
+def physics(fuel, f, gravity_g):
+    """Estimates that shape the drawing. f: model features (fractions, atm, mm)."""
+    p = FUEL[fuel]
+    o2, co2, he = f["o2"], f["co2"], f["he"]
+    over = o2 + co2 + he > 1 + 1e-9          # the sliders allow more than 100%: shrink the diluents to fit and say so
+    if over:
+        co2, he = (v * (1 - o2) / (co2 + he) for v in (co2, he))
+    n2 = max(1 - o2 - co2 - he, 0.0)
+    # Flame temperature: all the heat of burning one mole of fuel with just enough atmosphere goes into the products.
+    per = p["o2"] / o2                       # moles of atmosphere drawn in per mole of fuel, per unit O2 fraction
+    heat_cap = p["co2"] * CP["co2"] + p["h2o"] * CP["h2o"] + per * (co2 * CP["co2"] + n2 * CP["n2"] + he * CP["he"])
+    t_flame = T0 + p["lhv"] * 1e3 / heat_cap
+
+    # Soot: none for methanol. For heptane it scales with how far the flame is above the soot threshold, with pressure,
+    # and with residence time in the flame, which grows with the square of the droplet size. 1 = a 3 mm droplet at 1 atm
+    # with a 2300 K flame, where FLEX saw a yellow glow at ignition that quickly turned blue.
+    soot = p["soots"] * min(max((t_flame - T_SOOT_MIN) / (T_SOOT_REF - T_SOOT_MIN), 0.0), 1.6) * f["p_atm"] * (f["d0"] / 3.0) ** 2
+    soot = min(soot, 1.6)
+    t_soot = T_SOOT_GLOW * min(t_flame, T_NO_DISSOCIATION + 100)
+    glow, ref = _blackbody(t_soot), _blackbody(T_SOOT_GLOW * T_SOOT_REF)
+
+    # Buoyancy: speed of hot gas rising past the flame, sqrt(g * flame diameter), against the speed at which gas diffuses
+    # across the flame's radius. Far below 1 the flame stays round; far above 1 it is a teardrop, as on Earth.
+    df0 = f["d0"] * float(_fsr(fuel, o2, 0.0, f["d0"])) / 1000.0
+    ratio = math.sqrt(gravity_g * 9.81 * df0) * df0 / (2 * D_HOT / f["p_atm"])
+    return {
+        # above the limit the balance is no longer trustworthy, so the limit is reported with a flag instead of the number
+        "t_flame_k": round(min(t_flame, T_NO_DISSOCIATION)), "t_high": t_flame > T_NO_DISSOCIATION, "mix_over": over,
+        "n2_pct": round(n2 * 100, 1),
+        "soot_index": round(soot, 2), "soot_t_k": round(t_soot),
+        "soot_rgb": [round(float(v), 3) for v in glow / glow.max()],
+        "soot_gain": round(float(np.clip(math.sqrt(glow[0] / ref[0]), 0.2, 2.0)), 2),
+        "gravity_g": gravity_g, "buoyancy_ratio": round(ratio, 2),
+        # how far the drawing stretches the flame upward: 1 = round. An illustration: no test here ran in partial gravity
+        "stretch": round(1 + STRETCH_MAX * ratio ** 2 / (ratio ** 2 + STRETCH_HALF ** 2), 2),
+        "q_ref": Q_REF,
+    }
+
+
+def _burn(fuel, o2, d0, k, t_end, ph, goes_out):
     t = np.linspace(0, max(t_end, 1e-3), SAMPLES)
     d = np.sqrt(np.maximum(d0 ** 2 - k * t, 0))
     fsr = _fsr(fuel, o2, t, d0)
+    df = d * fsr
+    # Heat released per unit flame surface, kW/m2. The d^2 law gives the fuel burned per second, (pi/4) rho K d, and all of
+    # it burns at the flame, a sphere of diameter df. Flame light follows heat release, so this sets the brightness.
+    p = FUEL[fuel]
+    q = np.divide(p["rho"] * (k * 1e-6) * (d * 1e-3) * (p["lhv"] / p["molar"] * 1e6), 4 * (df * 1e-3) ** 2,
+                  out=np.zeros_like(d), where=df > 0) / 1000.0
+    lum = np.clip((q / Q_REF) ** LUM_GAMMA, 0.05, 2.5)
+    if goes_out:   # FLEX flames were "very dim near flame extinction": the heat balance alone does not show that
+        lum = lum * (1 - (1 - LUM_END) * np.clip((t / t[-1] - (1 - FADE_PART)) / FADE_PART, 0, 1))
+    s = ph["soot_index"]
+    # the glow at ignition fades; under gravity soot keeps forming in the rising plume, as in a candle
+    steady = 0.8 * s * min(ph["buoyancy_ratio"] / STRETCH_HALF, 1.0)
+    soot = s * np.exp(-t / (SOOT_TAU * min(max(s, 0.25), 3.0))) + steady if s > 0 else np.zeros_like(t)
     r = lambda a, n=3: [round(float(v), n) for v in a]
-    return {"t_end": round(float(t[-1]), 2), "t": r(t), "d": r(d), "df": r(d * fsr, 2), "fsr": r(fsr, 2),
-            "lum": r(1 - (1 - LUM_END) * t / t[-1], 2),
-            "soot": r(np.exp(-t / SOOT_TAU) if fuel == "Heptane" else np.zeros_like(t), 2)}
+    return {"t_end": round(float(t[-1]), 2), "t": r(t), "d": r(d), "df": r(df, 2), "fsr": r(fsr, 2),
+            "q": r(q, 1), "lum": r(lum, 2), "soot": r(soot, 2)}
 
 
-def flame(fuel, f, k, p_out):
+def flame(fuel, f, k, p_out, gravity_g=0.0):
     """Both endings of one burn, sampled in time. f: model features (o2 as a fraction, d0 in mm); k in mm^2/s."""
     if k <= 0:
         return None
+    ph = physics(fuel, f, gravity_g)
     sc = MODELS["scale"]
     runs = [r for r in MODELS["train_rows"] if r["fuel"] == fuel and r.get("end") == "Extinction" and r.get("d_ext")]
     near = sorted(runs, key=lambda r: sum(((r[c] - f[c]) / sc[c]) ** 2 for c in sc))[:NEAREST_OUT]
@@ -383,11 +463,11 @@ def flame(fuel, f, k, p_out):
         out = {"p": round(p_out, 3), "d_end": round(d_end, 2), "ratio": round(ratio, 2),
                "mode": "radiative" if fuel == "Heptane" else "diffusive", "retreat_s": RETREAT_S if fuel == "Heptane" else 0,
                "from_runs": [{"id": r["run"], "d0_mm": r["d0"], "d_ext_mm": r["d_ext"], "ratio": round(r["d_ext"] / r["d0"], 2)} for r in near],
-               **_burn(fuel, o2, d0, k, (d0 ** 2 - d_end ** 2) / k)}
-    burnout = {"p": round(1 - p_out, 3), "d_end": 0, "mode": "burnout", "retreat_s": 0, **_burn(fuel, o2, d0, k, d0 ** 2 / k)}
+               **_burn(fuel, o2, d0, k, (d0 ** 2 - d_end ** 2) / k, ph, True)}
+    burnout = {"p": round(1 - p_out, 3), "d_end": 0, "mode": "burnout", "retreat_s": 0, **_burn(fuel, o2, d0, k, d0 ** 2 / k, ph, False)}
     lo, hi = FSR_M_LINE[0][0], FSR_M_LINE[1][0]
     return {"fuel": fuel, "k": round(k, 3), "d0": d0, "default": "out" if out and p_out >= 0.5 else "burnout",
-            "out": out, "burnout": burnout,
+            "out": out, "burnout": burnout, "physics": ph,
             "fsr_o2_held": o2 < lo or o2 > hi, "fsr_o2_range": [round(lo * 100, 1), round(hi * 100, 1)],
             # methanol: the settled ratio at this oxygen level; heptane: the oxygen scaling applied to the measured line
             "fsr_steady": round(_fsr_methanol(o2), 2) if fuel == "Methanol" else None,
@@ -415,7 +495,7 @@ def predict(i: PredictIn):
     pairs = [t for t in TESTS if t["investigation"] == "SAFFIRE-II"]
     ext, burn = _ensemble(MODELS["extinction"], x_ext, True), _ensemble(MODELS["burn_rate"], x, False)
     return {
-        "extinction": ext, "burn_rate": burn, "flame": flame(i.fuel, f, burn["mean"], ext["mean"]),
+        "extinction": ext, "burn_rate": burn, "flame": flame(i.fuel, f, burn["mean"], ext["mean"], i.gravity_g),
         "outside": outside, "extrapolating": bool(outside),
         "nearest": [{"id": r["id"], "o2_pct": round(r["o2"] * 100, 1), "pressure_psia": round(r["p_atm"] * PSI_PER_ATM, 1),
                      "co2_pct": round(r["co2"] * 100), "he_pct": round(r["he"] * 100), "d0_mm": r["d0"], "k": r["k"], "end": r["end"]} for r in near],

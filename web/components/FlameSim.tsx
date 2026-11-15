@@ -8,14 +8,19 @@ import { BLUE, FlameScene, SHELL, createFlameScene } from "@/components/scene/fl
 type Run = { id: string; d0_mm: number; d_ext_mm: number; ratio: number };
 type Burn = {
   p: number; d_end: number; mode: "radiative" | "diffusive" | "burnout"; retreat_s: number; t_end: number;
-  t: number[]; d: number[]; df: number[]; fsr: number[]; lum: number[]; soot: number[]; ratio?: number; from_runs?: Run[];
+  t: number[]; d: number[]; df: number[]; fsr: number[]; q: number[]; lum: number[]; soot: number[]; ratio?: number; from_runs?: Run[];
 };
 type Source = { cite: string; url: string };
+// Estimates from textbook physics (physics() in services/ml/app.py). Not model output and not measured in any test.
+type Physics = {
+  t_flame_k: number; t_high: boolean; mix_over: boolean; n2_pct: number; soot_index: number; soot_t_k: number;
+  soot_rgb: [number, number, number]; soot_gain: number; gravity_g: number; buoyancy_ratio: number; stretch: number; q_ref: number;
+};
 export type Flame = {
   fuel: "Heptane" | "Methanol"; k: number; d0: number; default: Ending; out: Burn | null; burnout: Burn;
   fsr_o2_held: boolean; fsr_o2_range: [number, number]; fsr_steady: number | null; fsr_o2_factor: number | null;
   d2_check: { n: number; median: number; p10: number; p90: number } | null; runs: number; disrupted: number;
-  sources: { flex: Source; cool_flame: Source };
+  sources: { flex: Source; cool_flame: Source }; physics: Physics;
 };
 type Ending = "out" | "burnout";
 type View = "3d" | "2d";
@@ -40,7 +45,7 @@ function sample(b: Burn, t: number) {
   const n = b.t.length - 1, end = b.t[n];
   const x = Math.min(Math.max(t / end, 0), 1) * n, i = Math.min(Math.floor(x), n - 1), f = x - i;
   const at = (a: number[]) => a[i] + (a[i + 1] - a[i]) * f;
-  return { d: at(b.d), df: at(b.df), fsr: at(b.fsr), lum: at(b.lum), soot: at(b.soot) };
+  return { d: at(b.d), df: at(b.df), fsr: at(b.fsr), q: at(b.q), lum: at(b.lum), soot: at(b.soot) };
 }
 
 function draw(cv: HTMLCanvasElement, fuel: Flame["fuel"], b: Burn, t: number, fov: number) {
@@ -48,6 +53,7 @@ function draw(cv: HTMLCanvasElement, fuel: Flame["fuel"], b: Burn, t: number, fo
   if (!ctx) return;
   const dpr = cv.width / Math.max(cv.clientWidth, 1), W = cv.width, H = cv.height, cx = W / 2, cy = H / 2;
   const pxmm = Math.min(W, H) / fov, end = b.t[b.t.length - 1], s = sample(b, t);
+  s.lum = Math.min(s.lum, 1); s.soot = Math.min(s.soot, 1);   // this flat drawing has no headroom for over-bright flames
   const alive = t < end && s.df > 0;
   const [r, g, bl] = BLUE[fuel];
   ctx.clearRect(0, 0, W, H);
@@ -123,11 +129,12 @@ function draw(cv: HTMLCanvasElement, fuel: Flame["fuel"], b: Burn, t: number, fo
 }
 
 /** What the 3D scene draws at time t: the same interpolated numbers as the flat drawing. */
-function frame3(flame: Flame, b: Burn, t: number, cut: boolean) {
-  const end = b.t[b.t.length - 1], s = sample(b, t), alive = t < end && s.df > 0, into = t - (end - b.retreat_s);
+function frame3(flame: Flame, b: Burn, t: number, cut: boolean, needles: boolean) {
+  const end = b.t[b.t.length - 1], s = sample(b, t), alive = t < end && s.df > 0, into = t - (end - b.retreat_s), ph = flame.physics;
   return {
     fuel: flame.fuel, d: t >= end ? b.d_end : s.d, df: alive ? s.df : 0, lum: s.lum, soot: s.soot,
     retreat: alive && b.retreat_s > 0 && into > 0 ? into / b.retreat_s : null, dfMax: Math.max(...b.df), cut,
+    sootRgb: ph.soot_rgb, sootGain: ph.soot_gain, stretch: ph.stretch, needles,
   };
 }
 
@@ -148,6 +155,7 @@ export default function FlameSim({ flame, gravity, extrapolating }: { flame: Fla
   const [view, setView] = useState<View>("3d");
   const [gl, setGl] = useState(true);         // false once WebGL failed: then the flat drawing is all there is
   const [cut, setCut] = useState(false);
+  const [needles, setNeedles] = useState(true);
   const [pxmm, setPxmm] = useState(0);        // 3D view: CSS pixels per millimetre at the droplet, for the scale bar
   const scene3 = useRef<FlameScene | null>(null);
   const glHost = useRef<HTMLDivElement>(null);
@@ -191,7 +199,7 @@ export default function FlameSim({ flame, gravity, extrapolating }: { flame: Fla
     sc.onView(() => setPxmm(sc.pxPerMm()));
     return () => { sc.dispose(); scene3.current = null; setPxmm(0); };
   }, [view]);
-  useEffect(() => { scene3.current?.fit(fov); }, [fov, view]);
+  useEffect(() => { scene3.current?.fit(fov, flame.physics.stretch); }, [fov, view, flame.physics.stretch]);
 
   useEffect(() => {
     if (!playing) return;
@@ -208,21 +216,22 @@ export default function FlameSim({ flame, gravity, extrapolating }: { flame: Fla
   }, [playing, speed, end]);
 
   useEffect(() => {
-    if (view === "3d") scene3.current?.frame(frame3(flame, b, t, cut));
+    if (view === "3d") scene3.current?.frame(frame3(flame, b, t, cut, needles));
     else if (cv.current && size) draw(cv.current, flame.fuel, b, t, fov);
-  }, [view, flame, b, t, fov, size, cut]);
+  }, [view, flame, b, t, fov, size, cut, needles]);
 
   const pick = (e: Ending) => { setEnding(e); seek(0); setPlaying(!still()); };
   const play = () => { if (tRef.current >= end) { seek(0); setPlaying(true); } else setPlaying(!playing); };
 
   const heptane = flame.fuel === "Heptane", fuel = flame.fuel.toLowerCase();
-  const s = sample(b, t), done = t >= end, alive = !done && s.df > 0;
+  const s = sample(b, t), done = t >= end, alive = !done && s.df > 0, ph = flame.physics, buoyant = ph.stretch > 1.05;
   const status = done
     ? b.mode === "burnout" ? "All the fuel burned. The flame shrank with the droplet until nothing was left."
       : `Out. A droplet ${fmt(b.d_end, 2)} mm across is left.${heptane ? " In FLEX, large heptane droplets often kept burning at this point with an invisible cool flame (not drawn)." : ""}`
     : b.retreat_s > 0 && t > end - b.retreat_s ? "Going out: the flame dies on one side first and the dark region sweeps across."
-      : s.soot > 0.3 ? "Igniting: soot glows yellow for a moment, then the flame turns blue."
-        : "Burning: a steady blue ball around the droplet.";
+      : buoyant ? `Burning at ${fmt(gravity, 2)} g: hot gas rises and pulls the flame into a teardrop (shape is an illustration).`
+        : s.soot > 0.3 ? "Soot inside the flame glows yellow; as it thins the flame turns blue."
+          : "Burning: a steady blue ball around the droplet.";
   const label = `Simulated ${fuel} droplet flame in microgravity: a round blue flame up to ${fmt(Math.max(...b.df), 0)} mm across around a `
     + `${fmt(flame.d0, 2)} mm droplet. ${b.mode === "burnout" ? `It burns all the fuel in ${fmt(end, 1)} s.`
       : `It goes out after ${fmt(end, 1)} s, leaving a ${fmt(b.d_end, 2)} mm droplet.`}`;
@@ -233,8 +242,10 @@ export default function FlameSim({ flame, gravity, extrapolating }: { flame: Fla
       <h3>Flame simulation</h3>
       {gravity > 0.01 && (
         <p className="warnline gap-top">
-          Drawn for microgravity, like every FLEX burn. At {fmt(gravity, 2)} g buoyancy would carry hot gas upward and stretch the flame into
-          a teardrop, as a candle does on Earth. Neither the model nor this drawing covers that.
+          At {fmt(gravity, 2)} g hot gas rises about {fmt(ph.buoyancy_ratio, 1)} times faster than it diffuses, so the 3D view pulls the
+          flame up into a teardrop. That shape is an illustration: no test in the dataset ran in partial gravity, and the two models
+          below were trained on zero-gravity burns only, so the sizes and times here would not hold. The camera view keeps the
+          zero-gravity sphere.
         </p>
       )}
       {extrapolating && <p className="warnline gap-top">Some inputs are outside the tested range, so this burn is drawn from extrapolated numbers.</p>}
@@ -253,6 +264,7 @@ export default function FlameSim({ flame, gravity, extrapolating }: { flame: Fla
           title={gl ? undefined : "WebGL is not available in this browser"}>3D</button>
         <button className="ghost" aria-pressed={view === "2d"} onClick={() => setView("2d")}>Camera view</button>
         {view === "3d" && <button className="ghost" aria-pressed={cut} onClick={() => setCut(!cut)}>Cut flame in half</button>}
+        {view === "3d" && <button className="ghost" aria-pressed={needles} onClick={() => setNeedles(!needles)}>Needles</button>}
       </div>
 
       <div className="sim-view">
@@ -277,12 +289,19 @@ export default function FlameSim({ flame, gravity, extrapolating }: { flame: Fla
         <div><dt>Since ignition</dt><dd>{fmt(t, 1)} s <span className="note">of {fmt(end, 1)}</span></dd></div>
         <div><dt>Droplet</dt><dd>{fmt(done ? b.d_end : s.d, 2)} mm</dd></div>
         <div><dt>Flame</dt><dd>{alive ? <>{fmt(s.df, 1)} mm <span className="note">{fmt(s.fsr, 1)}× droplet</span></> : "none"}</dd></div>
+        <div><dt>Flame temperature <span className="tag">estimate</span></dt>
+          <dd>{ph.t_high ? "above " : "about "}{ph.t_flame_k.toLocaleString("en-US")} K</dd></div>
+        <div><dt>Heat release <span className="tag">estimate</span></dt><dd>{alive ? <>{fmt(s.q, 0)} kW/m²</> : "none"}</dd></div>
+        <div><dt>Soot <span className="tag">estimate</span></dt>
+          <dd>{ph.soot_index < 0.05 ? "none" : ph.soot_index < 0.5 ? "light" : ph.soot_index < 1.2 ? "moderate" : "heavy"}
+            {ph.soot_index >= 0.05 && <span className="note"> {fmt(ph.soot_index, 2)}</span>}</dd></div>
       </dl>
       <p className="sim-status">{status}</p>
       <p className="note">
-        A {fuel} droplet burning in microgravity, drawn to scale and in real time from the two predictions below. With no buoyancy there is
-        no rising hot gas, so instead of a candle&apos;s flickering teardrop the flame is a steady ball around the droplet. The model gives
-        a chance, not a certainty, so either ending can be shown; the likelier one comes first.
+A {fuel} droplet burning{buoyant ? "" : " in microgravity"}, drawn to scale and in real time. Size and timing come from the two
+        predictions below; brightness, soot and shape come from the physics estimates listed under &ldquo;How this burn is computed&rdquo;.
+        {buoyant ? "" : " With no buoyancy there is no rising hot gas, so instead of a candle's teardrop the flame is a steady ball around the droplet."}
+        {" "}The model gives a chance, not a certainty, so either ending can be shown; the likelier one comes first.
       </p>
 
       <details>
@@ -319,25 +338,26 @@ export default function FlameSim({ flame, gravity, extrapolating }: { flame: Fla
           </li>
           <li>
             <b>3D view.</b> The same numbers as the camera view, drawn as glowing gas you can turn. Each pixel adds up the light along
-            its line of sight through the flame, as a camera does, so the thin reaction zone shows as a bright rim around a fainter
-            middle from every angle. Soot glows and also hides what is behind it. Bright areas bleed a little, as in a real lens.
-            &ldquo;Cut flame in half&rdquo; removes the near half so the gap between droplet and flame (the standoff distance) shows
-            from the side. The faint rings mark the largest size the flame reaches in this burn. Drawing choices, not data: how thick
-            the glowing zone is, the slightly greener inner edge, the soot&apos;s position and churning texture, the lens glow, and the
-            droplet&apos;s shading (it uses the liquid&apos;s real refractive index, but no test recorded how the droplet looked).
-            The flame stays a sphere because FLEX droplets burned in still gas with no buoyancy. Drift, airflow or gravity would
-            stretch it, and neither the model nor the data here covers that.
+            its line of sight through the flame, as a camera does. Soot glows and also dims what is behind it. Bright areas bleed a
+            little and burn out toward white, as in a photograph. &ldquo;Cut flame in half&rdquo; removes the near half so the gap
+            between droplet and flame (the standoff distance) shows from the side. Drawing choices, not data: how thick the glowing
+            zone is, its colours (teal inside, where hydrocarbon flames glow blue-green, to violet at the edge), the soot&apos;s
+            position and churning texture, the lens glow and grain, and the droplet&apos;s shading.
           </li>
           <li>
-            <b>Shape.</b> A sphere centred on the droplet, steady, with no flicker. A candle&apos;s flicker and teardrop shape both come from
-            buoyancy, and the FLEX chamber typically stayed below one hundred-thousandth of Earth&apos;s gravity.
+            <b>Needles.</b> FLEX formed each droplet between two opposed needles and pulled them back before lighting it. They are
+            drawn pulled back to just outside the largest flame. Their thickness and distance are a drawing choice: the test table
+            does not record them. The igniter is not drawn.
           </li>
           <li>
-            <b>Colour and brightness.</b> The flame is a thin glowing shell, so it shows as a ring brighter at its edge.
-            {heptane ? " Heptane glows yellow from soot just after ignition and then burns blue. The paper says the yellow “quickly” gave way to blue without timing it; the drawing fades it over about a second."
-              : " Methanol makes no soot at these pressures, so it shows only a faint blue."}
-            {" "}Brightness is relative: bright early and dim near the end, as FLEX observed. The camera gain was set per test, so the images give
-            no brightness to compare between conditions.
+            <b>Shape.</b> {buoyant
+              ? <>A teardrop, because the selected place has gravity. See the gravity estimate below.</>
+              : <>A sphere centred on the droplet, steady, with no flicker. A candle&apos;s flicker and teardrop shape both come from
+                buoyancy, and the FLEX chamber typically stayed below one hundred-thousandth of Earth&apos;s gravity.</>}
+          </li>
+          <li>
+            <b>Colour.</b> {heptane ? "Heptane glows yellow from soot just after ignition and then burns blue. The paper says the yellow “quickly” gave way to blue without timing it."
+              : "Methanol makes no soot at these pressures, so it shows only a pale blue."}
           </li>
           <li>
             <b>How it goes out.</b> {heptane
@@ -349,7 +369,48 @@ export default function FlameSim({ flame, gravity, extrapolating }: { flame: Fla
             {heptane && <> The invisible cool flame on which large heptane droplets kept burning after the visible flame went out
               (<a href={flame.sources.cool_flame.url} target="_blank" rel="noreferrer">Nayagam et al. 2012</a>).</>}
             {" "}Droplet break-up, which ended {flame.disrupted} of the {flame.runs} FLEX {fuel} runs used here and is left out of the extinction
-            model. Droplet drift, the igniter and the deployment needles.
+            model. Droplet drift and the igniter.
+          </li>
+        </ul>
+
+        <h4 className="gap-top">Estimates that set how the flame looks</h4>
+        <p className="note">
+          The two models predict only whether the flame goes out and how fast the droplet burns. Nothing in the FLEX table records
+          brightness, soot or shape. So the look is driven by four textbook estimates computed from the same inputs. They show the
+          right direction of each effect. They are not measurements and not model predictions.
+        </p>
+        <ul className="plain">
+          <li>
+            <b>Flame temperature: {ph.t_high ? "above" : "about"} {ph.t_flame_k.toLocaleString("en-US")} K.</b> An energy balance: the
+            heat from burning the fuel with just enough of this atmosphere ({fmt(ph.n2_pct, 1)}% nitrogen after oxygen, CO₂ and
+            helium) warms the gases that are left. More oxygen means less nitrogen to heat, so a hotter flame; CO₂ soaks up heat, so a
+            cooler one. It is an upper bound: real flames lose heat by radiation.
+            {ph.t_high && " Above about 2,500 K hot gases start to break apart, which this balance ignores, so only the limit is shown."}
+            {ph.mix_over && " Oxygen, CO₂ and helium add up to more than 100% here, so CO₂ and helium were scaled down to fit."}
+          </li>
+          <li>
+            <b>Brightness: heat release, {alive ? `${fmt(s.q, 0)} kW per m² of flame now` : "none now"}.</b> The d² law gives the fuel
+            burned each second, and all of it burns at the flame surface. Flame light follows heat release, so this sets how bright the
+            blue is ({fmt(ph.q_ref, 0)} kW/m² is shown at normal brightness). Small flames come out brighter and large ones dimmer.
+            A flame that goes out is also dimmed over its last quarter, because FLEX flames were very dim just before extinction and
+            this balance alone does not show that.
+          </li>
+          <li>
+            <b>Soot: {ph.soot_index < 0.05 ? "none" : `index ${fmt(ph.soot_index, 2)}`}.</b>{" "}
+            {heptane
+              ? <>A rule of thumb with three factors: how far the flame temperature is above about 1,600 K, where soot starts to form;
+                pressure; and droplet size squared, since soot needs time inside the flame and a bigger flame gives it more. An index
+                of 1 is a 3 mm droplet at 1 atm with a 2,300 K flame, which is where FLEX saw the short yellow glow. The index sets how
+                strong the yellow is and how long it lasts. The glow&apos;s colour is that of a hot body at {ph.soot_t_k.toLocaleString("en-US")} K
+                (85% of the flame temperature, a choice): redder when cooler, yellow-white when hotter.</>
+              : <>Methanol made no visible soot in FLEX, so none is drawn whatever the conditions.</>}
+          </li>
+          <li>
+            <b>Gravity: buoyancy ratio {fmt(ph.buoyancy_ratio, 2)}.</b> The speed of hot gas rising past the flame, √(g × flame
+            diameter), divided by the speed at which gas diffuses across the flame. Far below 1 the flame stays round, as in orbit; far
+            above 1 it is a teardrop, as on Earth. {buoyant
+              ? "The ratio itself is physics. How far the drawing stretches for a given ratio is an illustration: the dataset has no partial-gravity test to set it by. Under gravity soot also keeps forming in the rising gas, as in a candle, so the yellow does not fade."
+              : "Here the flame is drawn round."}
           </li>
         </ul>
         <p className="note gap-top">

@@ -26,10 +26,14 @@ export type FlameFrame = {
   retreat: number | null; // radiative extinction: 0 to 1 through the retreat, null otherwise
   dfMax: number;          // largest flame diameter in this burn, for the reference rings
   cut: boolean;           // show only half of the flame, so its distance from the droplet can be seen from the side
+  sootRgb: [number, number, number];   // colour of the soot glow (black-body, from the estimated soot temperature)
+  sootGain: number;       // how brightly the soot glows relative to the reference flame
+  stretch: number;        // 1 = round; above 1 the flame is drawn pulled upward by buoyancy (an illustration)
+  needles: boolean;       // show the two fuel deployment needles
 };
 export type FlameScene = {
   frame(f: FlameFrame): void;
-  fit(fovMm: number): void;       // frame the camera so fovMm fills the shorter side of the view
+  fit(fovMm: number, stretch?: number): void;   // frame the camera so the flame (fovMm across, stretched upward) fills the view
   pxPerMm(): number;              // CSS pixels per millimetre at the droplet's depth
   onView(cb: () => void): void;   // called when the user turns or zooms the view
   dispose(): void;
@@ -45,7 +49,7 @@ const FOV_Y = 30;            // degrees; narrow, so perspective barely distorts 
 const BOUND = 1.2;           // the gas is marched out to this many flame radii
 // Brightness across the flame, in flame radii: it peaks at RC, falls off quickly outward (width OUT) and slowly inward
 // (width IN), where hot burnt gas still glows faintly. So the flame has a soft edge near 1 and a hazy, filled middle.
-const RC = 0.92, OUT = 0.055, IN = 0.16;
+const RC = 0.9, OUT = 0.075, IN = 0.11;
 // Colours of the glow, linear RGB: [inside, brightest zone, outer edge]. Hydrocarbon flames photograph blue-green where
 // C2 radicals emit (the fuel side), blue from CH, and violet-blue at the lean outer edge. Methanol makes little C2, so its
 // flame is a paler, more even blue. The exact shades are a drawing choice.
@@ -74,7 +78,9 @@ const GAS_FRAG = /* glsl */ `
   uniform float uLum; uniform float uSoot; uniform float uTime;
   uniform float uEdge;     // extinction sweep position along x (10 = none)
   uniform float uCut;      // 1 = only the half with x < 0
-  const int STEPS = 80;
+  uniform vec3 uSootCol;   // soot glow colour times its strength
+  uniform float uStretch;  // 1 = round flame; above 1 = pulled upward by buoyancy
+  const int STEPS = 96;
   const float BOUND = ${BOUND.toFixed(3)}, RC = ${RC.toFixed(4)}, OUT = ${OUT.toFixed(4)}, IN = ${IN.toFixed(4)};
 
   float hash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -85,10 +91,20 @@ const GAS_FRAG = /* glsl */ `
   }
   float fbm(vec3 p) { return 0.55 * noise(p) + 0.3 * noise(p * 2.1 + 3.7) + 0.15 * noise(p * 4.3 - 1.3); }
 
+  // Buoyancy: maps a point of the teardrop flame back onto the round one. Above the droplet the flame is drawn out by
+  // uStretch and narrows toward its tip; below, it sits closer to the droplet, where fresh gas flows in.
+  vec3 warp(vec3 p) {
+    if (uStretch < 1.002) return p;
+    float w = mix(1.0, 0.3, smoothstep(0.0, 1.05, max(p.y, 0.0) / uStretch));
+    float sy = p.y > 0.0 ? uStretch : mix(1.0, 0.7, min(uStretch - 1.0, 1.0));
+    return vec3(p.x / w, p.y / sy, p.z / w);
+  }
+
   void main() {
     vec3 ro = cameraPosition / uR, rd = normalize(vWorld - cameraPosition);
     float b = dot(ro, rd), c = dot(ro, ro);
-    float h = b * b - (c - BOUND * BOUND);
+    float bound = BOUND * max(uStretch, 1.0);
+    float h = b * b - (c - bound * bound);
     if (h < 0.0) discard;
     h = sqrt(h);
     float t0 = max(-b - h, 0.0), t1 = -b + h;
@@ -103,7 +119,7 @@ const GAS_FRAG = /* glsl */ `
     float trans = 1.0;
     for (int i = 0; i < STEPS; i++) {
       vec3 p = ro + rd * (t0 + (float(i) + jitter) * dt);
-      float r = length(p);
+      float r = length(warp(p));
       float keep = (1.0 - smoothstep(uEdge - 0.3, uEdge, p.x)) * (uCut > 0.5 ? step(p.x, 0.0) : 1.0);
       if (keep <= 0.0) continue;
       float d = r - RC;
@@ -117,7 +133,7 @@ const GAS_FRAG = /* glsl */ `
         // burns out to white-yellow, as in the photographs; toward its thin edge it stays orange
         float s = r / 0.4;
         dens = exp(-s * s) * uSoot * (0.5 + 1.0 * fbm(p * 3.2 + vec3(0.0, 0.0, uTime * 0.5)));
-        emit += vec3(1.0, 0.50, 0.10) * dens * 3.2;
+        emit += uSootCol * dens * 2.6;
       }
       float a = exp(-dens * 0.9 * dt);   // soot also dims what is behind it
       sum += trans * emit * keep * dt;
@@ -148,6 +164,33 @@ const DROP_FRAG = /* glsl */ `
     gl_FragColor = vec4(col, 1.0);
   }
 `;
+
+// The two fuel needles: brushed steel, lit by the flame from the middle of the scene.
+const NEEDLE_VERT = /* glsl */ `
+  varying vec3 vWorld; varying vec3 vN;
+  void main() {
+    vec4 w = modelMatrix * vec4(position, 1.0);
+    vWorld = w.xyz;
+    vN = normalize(mat3(modelMatrix) * normal);
+    gl_Position = projectionMatrix * viewMatrix * w;
+  }
+`;
+const NEEDLE_FRAG = /* glsl */ `
+  precision highp float;
+  varying vec3 vWorld; varying vec3 vN;
+  uniform vec3 uLight; uniform float uR;   // colour and strength of the flame's light; flame radius, mm
+  void main() {
+    vec3 n = normalize(vN), v = normalize(cameraPosition - vWorld), l = normalize(-vWorld), fill = normalize(vec3(-0.45, 0.6, 0.65));
+    float reach = min(1.0, uR * uR / max(dot(vWorld, vWorld), 1e-4));   // light falls off with distance from the flame
+    vec3 steel = vec3(0.56, 0.57, 0.58);
+    vec3 col = steel * 0.02 * (0.35 + 0.65 * max(dot(n, fill), 0.0));
+    col += steel * uLight * reach * (0.15 + 0.85 * max(dot(n, l), 0.0));
+    col += uLight * reach * 0.6 * pow(max(dot(reflect(-l, n), v), 0.0), 24.0);
+    col += vec3(0.05) * pow(max(dot(reflect(-fill, n), v), 0.0), 40.0);
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+const NEEDLE_D = 0.4, NEEDLE_LEN = 80;   // mm. A drawing choice: no needle size is recorded in the PSI table
 
 // Sensor grain, added after tone mapping: a little everywhere, a little more where the picture is bright.
 const GRAIN = {
@@ -199,6 +242,7 @@ export function createFlameScene(host: HTMLElement, opts: { still: boolean }): F
       uR: { value: 1 }, uDrop: { value: 0.1 }, uInner: { value: new THREE.Vector3() }, uPeak: { value: new THREE.Vector3() },
       uRim: { value: new THREE.Vector3() }, uLum: { value: 1 }, uSoot: { value: 0 },
       uTime: { value: 0 }, uEdge: { value: 10 }, uCut: { value: 0 },
+      uSootCol: { value: new THREE.Vector3(1, 0.5, 0.1) }, uStretch: { value: 1 },
     },
   });
   const dropMat = new THREE.ShaderMaterial({
@@ -208,6 +252,21 @@ export function createFlameScene(host: HTMLElement, opts: { still: boolean }): F
   const gas = new THREE.Mesh(sphere, gasMat);
   const drop = new THREE.Mesh(sphere, dropMat);
   gas.renderOrder = 2;
+
+  // FLEX formed each droplet between two opposed needles, then pulled them back before ignition. They are drawn pulled
+  // back to just outside the largest flame of this burn.
+  const needleGeo = new THREE.CylinderGeometry(NEEDLE_D / 2, NEEDLE_D / 2, NEEDLE_LEN, 20);
+  const needleMat = new THREE.ShaderMaterial({
+    vertexShader: NEEDLE_VERT, fragmentShader: NEEDLE_FRAG,
+    uniforms: { uLight: { value: new THREE.Vector3() }, uR: { value: 1 } },
+  });
+  const needles = new THREE.Group();
+  for (const side of [-1, 1]) {
+    const n = new THREE.Mesh(needleGeo, needleMat);
+    n.rotation.z = Math.PI / 2;            // the cylinder's axis runs along x
+    n.userData.side = side;
+    needles.add(n);
+  }
 
   // three faint great circles at the largest flame size of this burn, shown with the cutaway only: a photograph has none
   const ringPts = Array.from({ length: 129 }, (_, i) => { const a = (i / 128) * Math.PI * 2; return new THREE.Vector3(Math.cos(a), Math.sin(a), 0); });
@@ -219,7 +278,7 @@ export function createFlameScene(host: HTMLElement, opts: { still: boolean }): F
     l.rotation.set(x, y, 0);
     rings.add(l);
   }
-  scene.add(drop, rings, gas);
+  scene.add(drop, needles, rings, gas);
 
   // High dynamic range, then bloom (the soft glow a lens puts around anything bright), then tone mapping to the screen
   const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
@@ -250,10 +309,12 @@ export function createFlameScene(host: HTMLElement, opts: { still: boolean }): F
 
   const tanHalf = Math.tan(THREE.MathUtils.degToRad(FOV_Y / 2));
   const api: FlameScene = {
-    fit(fovMm) {
-      const fit = (fovMm / 2) / (tanHalf * Math.min(1, camera.aspect));
-      camera.position.set(0.55, 0.32, 1).normalize().multiplyScalar(fit);
-      controls.target.set(0, 0, 0);
+    fit(fovMm, stretch = 1) {
+      // a stretched flame reaches about `stretch` flame radii above the droplet and less than one below it
+      const tall = stretch > 1.05, grow = tall ? (0.8 + stretch) / 2 : 1;
+      const fit = (fovMm * grow / 2) / (tanHalf * Math.min(1, camera.aspect));
+      controls.target.set(0, tall ? (fovMm / 2.3) * (0.92 * stretch - 0.75) / 2 : 0, 0);
+      camera.position.set(0.55, 0.32, 1).normalize().multiplyScalar(fit).add(controls.target);
       controls.minDistance = fit * 0.25;
       controls.maxDistance = fit * 3;
       controls.update();
@@ -272,7 +333,9 @@ export function createFlameScene(host: HTMLElement, opts: { still: boolean }): F
       gas.visible = on;
       if (on) {
         const u = gasMat.uniforms;
-        gas.scale.setScalar(R * BOUND);
+        gas.scale.setScalar(R * BOUND * Math.max(f.stretch, 1));
+        u.uStretch.value = f.stretch;
+        u.uSootCol.value.set(f.sootRgb[0] * f.sootGain, f.sootRgb[1] * f.sootGain, f.sootRgb[2] * f.sootGain);
         u.uR.value = R;
         u.uDrop.value = f.d > 0 ? rDrop / R : 0;
         u.uInner.value.set(...inner); u.uPeak.value.set(...peak); u.uRim.value.set(...edge);
@@ -285,9 +348,18 @@ export function createFlameScene(host: HTMLElement, opts: { still: boolean }): F
       drop.scale.setScalar(rDrop);
       dropMat.uniforms.uColor.value.setRGB(...peak);
       dropMat.uniforms.uLum.value = on ? f.lum * fade * (f.cut ? 0.6 : 1) : 0;
-      dropMat.uniforms.uSoot.value = on ? f.soot * fade : 0;
+      dropMat.uniforms.uSoot.value = on ? Math.min(f.soot, 1.2) * fade : 0;
       dropMat.uniforms.uIndex.value = INDEX[f.fuel];
 
+      needles.visible = f.needles && f.dfMax > 0;
+      if (needles.visible) {
+        const tip = 1.15 * f.dfMax / 2, glow = on ? fade : 0, sootLight = Math.min(f.soot, 1.2) * f.sootGain * 0.8;
+        for (const n of needles.children) n.position.x = n.userData.side * (tip + NEEDLE_LEN / 2);
+        needleMat.uniforms.uR.value = Math.max(R, 0.5);
+        needleMat.uniforms.uLight.value.set(
+          glow * (peak[0] * f.lum + f.sootRgb[0] * sootLight), glow * (peak[1] * f.lum + f.sootRgb[1] * sootLight),
+          glow * (peak[2] * f.lum + f.sootRgb[2] * sootLight));
+      }
       rings.visible = f.cut && f.dfMax > 0;
       rings.scale.setScalar(f.dfMax / 2);
       animate = on && f.soot > 0.01 && !opts.still;
@@ -297,8 +369,8 @@ export function createFlameScene(host: HTMLElement, opts: { still: boolean }): F
       cancelAnimationFrame(raf);
       ro.disconnect();
       controls.dispose();
-      sphere.dispose(); ringGeo.dispose();
-      for (const m of [gasMat, dropMat, ringMat]) m.dispose();
+      sphere.dispose(); ringGeo.dispose(); needleGeo.dispose();
+      for (const m of [gasMat, dropMat, ringMat, needleMat]) m.dispose();
       bloom.dispose(); composer.dispose();
       renderer.dispose();
       renderer.forceContextLoss();

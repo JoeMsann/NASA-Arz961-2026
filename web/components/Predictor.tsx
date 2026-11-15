@@ -13,7 +13,8 @@ export default function Predictor({ env, atmos }: { env: Env; atmos: Atmos }) {
   const [x, setX] = useState({ fuel: "Heptane", co2_pct: 0, he_pct: 0, d0_mm: 3 });
   const [out, setOut] = useState<any>(null);
   const [err, setErr] = useState("");
-  const body = { ...x, o2_pct: Math.min(100, Math.max(5, atmos.o2_pct)), pressure_psia: atmos.pressure_psia };
+  const body = { ...x, o2_pct: Math.min(100, Math.max(5, atmos.o2_pct)), pressure_psia: atmos.pressure_psia,
+    gravity_g: Math.min(1, Math.max(0, atmos.gravity_g)) };
   const key = JSON.stringify(body);
   useEffect(() => {
     const t = setTimeout(() => api("ml", "predict", JSON.parse(key)).then((o) => { setOut(o); setErr(""); }).catch((e) => setErr(e.message)), 150);
@@ -77,7 +78,7 @@ export default function Predictor({ env, atmos }: { env: Env; atmos: Atmos }) {
             <h3>Closest real tests</h3>
             <div className="scroll"><table>
               <thead><tr><th>Test</th><th>O₂</th><th>psi</th><th>CO₂</th><th>He</th><th>d₀ mm</th><th>K</th><th>Ended</th></tr></thead>
-              <tbody>{out.nearest.map((r: any) => <tr key={r.id}><td>{r.id}</td><td>{r.o2_pct}%</td><td>{r.pressure_psia}</td><td>{r.co2_pct}%</td><td>{r.he_pct}%</td><td>{r.d0_mm}</td><td>{r.k ?? "—"}</td><td>{r.end}</td></tr>)}</tbody>
+              <tbody>{out.nearest.map((r: any, i: number) => <tr key={`${r.id}-${i}`}><td>{r.id}</td><td>{r.o2_pct}%</td><td>{r.pressure_psia}</td><td>{r.co2_pct}%</td><td>{r.he_pct}%</td><td>{r.d0_mm}</td><td>{r.k ?? "—"}</td><td>{r.end}</td></tr>)}</tbody>
             </table></div>
           </div>
           <div className="card">
