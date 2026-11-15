@@ -15,6 +15,7 @@ Four people work in this repo, each with their own Claude session. The rules bel
 | `pipeline/build.py` | Builds the unified table and trains the models. One mapper function per source file |
 | `services/ml/` | FastAPI: table, navigator, compare, predictor (port 8001) |
 | `services/agent/` | FastAPI + LangGraph: Ask PSI chat and evidence search (port 8002) |
+| `services/mcp/` | MCP server for chatbots (port 8003, endpoint `/mcp`). Forwards to `ml` and `agent`; holds no data |
 | `web/` | Next.js 15 interface (port 3000). Reaches the services through `/api/svc/<svc>/...` |
 | `docs/` | One page per feature |
 
@@ -26,6 +27,8 @@ python pipeline/build.py                       # rebuild data/build/
 cd services/ml && uvicorn app:app --port 8001
 cd services/agent && uvicorn app:app --port 8002
 cd services/agent && python test_graph.py      # offline agent test, needs no API key
+cd services/mcp && uvicorn app:app --port 8003
+cd services/mcp && python test_mcp.py          # needs ml, agent and mcp running
 cd web && npm run dev
 cd web && npx tsc --noEmit                     # type-check
 ```

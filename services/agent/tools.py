@@ -1,11 +1,12 @@
 """The two tools the Ask PSI agent can call: read-only SQL and evidence search."""
-import json, math, os, pathlib, re, sqlite3
+import json, math, os, pathlib, re, sqlite3, time
 import httpx
 from langchain_core.tools import tool
 
 DATA = pathlib.Path(os.environ.get("DATA_DIR") or pathlib.Path(__file__).resolve().parents[2] / "data" / "build")
 DB = DATA / "unified.db"
 MAX_ROWS = 40
+SQL_SECONDS = 2.0   # the whole table answers in milliseconds; anything slower is a runaway query
 
 SCHEMA = """SQLite tables.
 tests(test_id, investigation, psi_id, kind, gravity, date, fuel, phase, o2_pct, pressure_psia, flow_cm_s,
@@ -29,6 +30,8 @@ def run_sql(query: str) -> dict:
     if not re.match(r"(?is)^\s*(select|with)\b", q) or ";" in q or _FORBIDDEN.search(q):
         return {"error": "Only a single SELECT statement is allowed."}
     con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+    deadline = time.monotonic() + SQL_SECONDS
+    con.set_progress_handler(lambda: time.monotonic() > deadline, 10_000)   # stops an endless recursive query
     try:
         cur = con.execute(q)
         cols = [c[0] for c in cur.description]

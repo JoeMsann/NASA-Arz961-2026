@@ -19,6 +19,10 @@ class ChatIn(BaseModel):
     messages: list[Turn] = Field(min_length=1, max_length=12)
 
 
+class SqlIn(BaseModel):
+    query: str = Field(max_length=4000)
+
+
 def graph():
     global _graph
     if _graph is None:
@@ -143,6 +147,12 @@ def chat(body: ChatIn):
 def search(q: str):
     """Evidence search without the language model. The UI falls back to this when no key is set."""
     return tools.search_all(q)
+
+
+@app.post("/sql")
+def sql(body: SqlIn):
+    """Read-only SQL without the language model, for the MCP service. Same guard and row limit as the agent's own tool."""
+    return tools.run_sql(body.query)
 
 
 @app.get("/schema")

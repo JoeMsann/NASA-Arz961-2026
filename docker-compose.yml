@@ -19,6 +19,21 @@ services:
     ports: ["3000:3000"]
     depends_on: [ml, agent]
 
+  mcp:                     # MCP server: chatbots call the table, navigator, compare and predictor as tools. http://localhost:8003/mcp
+    build: { context: ., dockerfile: services/mcp/Dockerfile }
+    environment:
+      ML_URL: http://ml:8001
+      AGENT_URL: http://agent:8002
+      MCP_LOG_JSON: ${MCP_LOG_JSON:-0}     # 1 = also print every JSON message.  docker compose logs -f mcp
+    ports: ["8003:8003"]
+    depends_on: [ml, agent]
+
+  tunnel:                  # optional: temporary public https address for the MCP server.  docker compose --profile tunnel up
+    profiles: [tunnel]
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --url http://mcp:8003
+    depends_on: [mcp]
+
   pipeline:                # one-off: rebuild the table and retrain.  docker compose run --rm pipeline
     profiles: [tools]
     image: python:3.13-slim
