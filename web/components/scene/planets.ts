@@ -43,7 +43,7 @@ export function atmosphere(radius: number, thickness: number, color: number, str
 }
 
 /** Earth: day map, city lights on the dark side, glossy oceans, relief, and a separate cloud layer. Lit by the scene's one point light, the Sun. */
-export function buildEarth(tex: Textures, radius: number) {
+export function buildEarth(tex: Textures, radius: number, tilt: number) {
   const surface = new THREE.MeshStandardMaterial({ map: tex.canvas(1024, 512, earthArt, 11), roughness: 1, metalness: 0, emissive: 0x000000, bumpScale: 2.5 });
   // City lights only where the sun is not, plus a blue haze toward the limb.
   surface.onBeforeCompile = (shader) => {
@@ -67,7 +67,7 @@ export function buildEarth(tex: Textures, radius: number) {
   const globe = new THREE.Mesh(new THREE.SphereGeometry(radius, 96, 48), surface);
   const clouds = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.012, 64, 32), veil);
   const axis = new THREE.Group();   // tilted spin axis shared by the surface and the clouds
-  axis.rotation.z = 0.41;
+  axis.rotation.z = tilt;
   axis.add(globe, clouds);
   return { axis, globe, clouds };
 }

@@ -27,7 +27,8 @@ Saturn, Uranus, Neptune, the Sun and the asteroid belt are drawn in code because
 ## How the camera frames things
 
 - `.scene-safe` in `globals.css` is the part of the screen no overlay covers. CSS moves its edges when the config window or sidebar opens; the scene slides the picture to the middle of it.
-- Until the user moves the camera, it also glides to a preset pose that fits that area: the home view (wide or tall) or the whole system. After the user zooms, turns or moves, only the slide happens. The home button restores the preset.
+- Until the user moves the camera, it also glides to a preset pose that fits that area: the selected place (wide or tall) or the whole system. After the user zooms, turns or moves, only the slide happens. The home button restores the preset.
+- The planets move, and the camera follows the selected place's body. See `docs/planet-motion.md`.
 - Controls: drag to turn, scroll or pinch to zoom, right-drag or two fingers to move, arrow keys when the scene has focus, and four buttons bottom right.
 
 ## Checks that were run

@@ -9,33 +9,51 @@ import { Art, Textures, bandArt, moonArt, rng } from "./textures";
  * (Jupiter is 17.9). Its glow fades out before Earth's orbit. Distances from the Sun keep the real order only.
  */
 export const EARTH_R = 3.3, MOON_R = 1.33, MARS_R = 2.12, SUN_R = 25, SUN_GLOW = 60;
-export const EARTH_ORBIT = 66, MARS_ORBIT = 80, BELT = { inner: 100, outer: 112 };
+export const BELT = { inner: 100, outer: 112 };
 
-/** Position on a circular orbit around the Sun, which sits at the origin. Angle in degrees. */
-export const onOrbit = (orbit: number, angle: number) => {
-  const a = THREE.MathUtils.degToRad(angle);
-  return new THREE.Vector3(orbit * Math.cos(a), 0, orbit * Math.sin(a));
-};
+/**
+ * Motion. Every orbit and every spin runs counterclockwise seen from the north (+Y), as in the real system, except the
+ * backward spins of Venus and Uranus (a negative `day`). Periods are the real sidereal ones (NASA planetary fact sheets),
+ * so their ratios are real, but on two clocks: orbits run one day per second (Earth's year takes about 6 minutes),
+ * spins run one day per 40 seconds (on the orbit clock Earth would turn once a second).
+ */
+export const ORBIT_DAY = 1, SPIN_DAY = 40;
+const TURN = Math.PI * 2;
+/** Angle along an orbit `t` seconds into the animation, in radians counterclockwise seen from the north. Start angle in degrees. */
+export const orbitAngle = (startDeg: number, yearDays: number, t: number) => THREE.MathUtils.degToRad(startDeg) + (TURN * t) / (yearDays * ORBIT_DAY);
+/** How far a body has turned about its own axis `t` seconds into the animation. A negative day is a backward spin. */
+export const spinAngle = (dayDays: number, t: number) => (TURN * t) / (dayDays * SPIN_DAY);
+/** Position on a circular orbit around the Sun, which sits at the origin. Angle in radians, counterclockwise seen from the north. */
+export const orbitPos = (orbit: number, angle: number, out = new THREE.Vector3()) => out.set(orbit * Math.cos(angle), 0, -orbit * Math.sin(angle));
 
-interface Planet extends GlobeLook {
+/** Orbit radius, start angle (degrees), year and day (Earth days) and axial tilt (degrees) of a planet. */
+export interface Motion { orbit: number; angle: number; year: number; day: number; tilt: number }
+// Mars starts just behind Earth. Earth is faster, so it pulls ahead; the two line up again every 780 days (13 minutes here).
+export const EARTH: Motion = { orbit: 66, angle: 0, year: 365.256, day: 0.99727, tilt: 23.44 };
+export const MARS: Motion = { orbit: 80, angle: -4.2, year: 686.98, day: 1.02596, tilt: 25.19 };
+/**
+ * The Moon: distance from Earth's center, start angle, orbit period (days) and orbit tilt to Earth's orbit (degrees).
+ * It turns once per orbit, so it always shows Earth the same face, as the real Moon does.
+ */
+export const MOON = { distance: 7.2, angle: -23, year: 27.3217, inclination: 5.145 };
+export const SUN_DAY = 25.38;   // the Sun's spin at its equator
+
+interface Planet extends GlobeLook, Motion {
   label: string;
-  orbit: number;
-  angle: number;       // where on its orbit, degrees
-  tilt: number;        // spin axis tilt, radians
-  spin: number;        // radians per second
   air?: [color: number, thickness: number, strength: number];
   rings?: [inner: number, outer: number];   // in planet radii
 }
 
 const bands = (...colors: string[]): Art => bandArt(colors);
 // The planets with no crewed place in this app. They are scenery: visible, named, not selectable.
+// Venus and Uranus are given as a small tilt with a backward spin: the same motion as their real tilts of 177° and 98°.
 const PLANETS: Planet[] = [
-  { label: "Mercury", orbit: 40, angle: 235, radius: 1.69, tilt: 0, spin: 0.01, art: moonArt, seed: 7, color: "mercury_color.jpg", roughness: 0.95 },
-  { label: "Venus", orbit: 52, angle: 75, radius: 3.18, tilt: 0.05, spin: -0.006, art: bands("#c9772a", "#e6a04a", "#d98a35", "#e6a04a", "#c9772a"), color: "venus_color.jpg", air: [0xffc98a, 0.05, 0.7] },
-  { label: "Jupiter", orbit: 146, angle: 50, radius: 17.9, tilt: 0.05, spin: 0.05, art: bands("#8c8376", "#cdbfa6", "#b98f66", "#e2d6c0", "#b0825c", "#d9ccb4", "#8c8376"), color: "jupiter_color.jpg" },
-  { label: "Saturn", orbit: 204, angle: -160, radius: 15.9, tilt: 0.47, spin: 0.045, art: bands("#a39269", "#d8c690", "#e6d7a8", "#cbb47c", "#e3d3a0", "#b9a574", "#a39269"), seed: 5, rings: [1.25, 2.3] },
-  { label: "Uranus", orbit: 254, angle: 115, radius: 8.7, tilt: 1.71, spin: 0.03, art: bands("#9fdde2", "#b9eaed", "#a6e1e5", "#b9eaed", "#9fdde2"), seed: 3 },
-  { label: "Neptune", orbit: 296, angle: -100, radius: 8.5, tilt: 0.49, spin: 0.03, art: bands("#2a49b8", "#3f69dc", "#3458c8", "#4472e2", "#2a49b8"), seed: 4 },
+  { label: "Mercury", orbit: 40, angle: -235, year: 87.969, day: 58.646, tilt: 0.03, radius: 1.69, art: moonArt, seed: 7, color: "mercury_color.jpg", roughness: 0.95 },
+  { label: "Venus", orbit: 52, angle: -75, year: 224.701, day: -243.025, tilt: 2.64, radius: 3.18, art: bands("#c9772a", "#e6a04a", "#d98a35", "#e6a04a", "#c9772a"), color: "venus_color.jpg", air: [0xffc98a, 0.05, 0.7] },
+  { label: "Jupiter", orbit: 146, angle: -50, year: 4332.59, day: 0.41354, tilt: 3.13, radius: 17.9, art: bands("#8c8376", "#cdbfa6", "#b98f66", "#e2d6c0", "#b0825c", "#d9ccb4", "#8c8376"), color: "jupiter_color.jpg" },
+  { label: "Saturn", orbit: 204, angle: 160, year: 10759.22, day: 0.44401, tilt: 26.73, radius: 15.9, art: bands("#a39269", "#d8c690", "#e6d7a8", "#cbb47c", "#e3d3a0", "#b9a574", "#a39269"), seed: 5, rings: [1.25, 2.3] },
+  { label: "Uranus", orbit: 254, angle: -115, year: 30688.5, day: -0.71833, tilt: 82.23, radius: 8.7, art: bands("#9fdde2", "#b9eaed", "#a6e1e5", "#b9eaed", "#9fdde2"), seed: 3 },
+  { label: "Neptune", orbit: 296, angle: 100, year: 60195, day: 0.67125, tilt: 28.32, radius: 8.5, art: bands("#2a49b8", "#3f69dc", "#3458c8", "#4472e2", "#2a49b8"), seed: 4 },
 ];
 
 /** A named point in the scene that gets a text label. */
@@ -83,32 +101,42 @@ function buildBelt(pixelRatio: number) {
   return belt;
 }
 
-/** Sun-centered scenery: orbit lines, the asteroid belt and the six planets without a crewed place. */
+/** Sun-centered scenery: orbit lines, the asteroid belt and the six planets without a crewed place. `update(t)` moves them `t` seconds into the animation. */
 export function buildSolarSystem(tex: Textures, pixelRatio: number) {
   const group = new THREE.Group();
-  const spinning: { mesh: THREE.Object3D; speed: number }[] = [];
   const landmarks: Landmark[] = [];
+  const movers: ((t: number) => void)[] = [];
 
+  // The belt turns as one ring, at the period of its middle (about 4.6 years at 2.8 times Earth's distance).
   const belt = buildBelt(pixelRatio);
-  spinning.push({ mesh: belt, speed: 0.004 });
+  movers.push((t) => { belt.rotation.y = orbitAngle(0, 1680, t); });
   const beltTag = new THREE.Object3D();
-  beltTag.position.copy(onOrbit((BELT.inner + BELT.outer) / 2, -35));
+  orbitPos((BELT.inner + BELT.outer) / 2, THREE.MathUtils.degToRad(35), beltTag.position);
   landmarks.push({ label: "Asteroid belt", anchor: beltTag, radius: 2 });
-  group.add(buildOrbitLines([...PLANETS.map((p) => p.orbit), EARTH_ORBIT, MARS_ORBIT]), belt, beltTag);
+  group.add(buildOrbitLines([...PLANETS.map((p) => p.orbit), EARTH.orbit, MARS.orbit]), belt, beltTag);
 
   for (const planet of PLANETS) {
-    const home = new THREE.Group();
-    home.position.copy(onOrbit(planet.orbit, planet.angle));
+    const home = new THREE.Group();   // moves along the orbit without turning, so the spin axis keeps pointing the same way
     const axis = new THREE.Group();
-    axis.rotation.z = planet.tilt;
+    axis.rotation.z = THREE.MathUtils.degToRad(planet.tilt);
     const globe = buildGlobe(tex, planet);
     axis.add(globe);
     if (planet.rings) axis.add(buildRings(tex, planet.radius * planet.rings[0], planet.radius * planet.rings[1]));
     home.add(axis);
-    if (planet.air) home.add(atmosphere(planet.radius, planet.air[1], planet.air[0], planet.air[2], home.position.clone().negate().normalize()));
-    spinning.push({ mesh: globe, speed: planet.spin });
+    const air = planet.air && atmosphere(planet.radius, planet.air[1], planet.air[0], planet.air[2], new THREE.Vector3());
+    if (air) home.add(air);
+    movers.push((t) => {
+      orbitPos(planet.orbit, orbitAngle(planet.angle, planet.year, t), home.position);
+      globe.rotation.y = spinAngle(planet.day, t);
+      if (air) sunFrom(home.position, air.material.uniforms.sunDir.value);
+    });
     landmarks.push({ label: planet.label, anchor: home, radius: planet.radius });
     group.add(home);
   }
-  return { group, spinning, landmarks };
+  const update = (t: number) => { for (const move of movers) move(t); };
+  update(0);
+  return { group, landmarks, update };
 }
+
+/** Direction from a point toward the Sun at the origin. */
+export const sunFrom = (p: THREE.Vector3, out = new THREE.Vector3()) => out.copy(p).negate().normalize();
