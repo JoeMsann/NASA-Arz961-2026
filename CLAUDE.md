@@ -1,6 +1,6 @@
 # Flame in Freefall
 
-NASA Space Apps 2026 entry: a dashboard that summarizes, ranks and interprets NASA microgravity combustion investigations (the PSI database) for spacecraft fire safety. The challenge text is in `README.md`. Setup, feature status and model scores are in `setup.md`.
+NASA Space Apps 2026 entry: a dashboard that summarizes, ranks and interprets NASA microgravity combustion investigations (the PSI database) for spacecraft fire safety. The challenge text is in `docs/challenge.md`; `README.md` is the project overview. Setup, feature status and model scores are in `setup.md`.
 
 Four people work in this repo, each with their own Claude session. The rules below exist so those sessions do not collide.
 
