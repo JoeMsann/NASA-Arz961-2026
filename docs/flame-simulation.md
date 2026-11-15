@@ -72,7 +72,7 @@ The two models predict whether the flame goes out and how fast the droplet burns
 
 What the sliders do through these: more oxygen means a hotter flame, more soot and a smaller, brighter flame; CO₂ cools it and removes the soot; pressure and droplet size add soot; a larger droplet has a dimmer flame; gravity makes a teardrop.
 
-Checked values (`physics()` called directly): heptane in air 2385 K, index 1.12, ratio 0; with 70% CO₂ 1804 K, index 0.29; Moon base (30% O₂, 10.2 psi, 0.166 g) above 2500 K, ratio 3.2, stretch 2.3; Earth ratio 14.5, stretch 3.1; a 1 mm droplet index 0.12, a 5 mm droplet 1.6; 10⁻⁵ g ratio 0.05, stretch 1.00.
+Checked values (`physics()` called directly): heptane in air 2385 K, index 1.12, ratio 0; with 70% CO₂ 1804 K, index 0.29; Moon base (30% O₂, 10.2 psi, 0.166 g) above 2500 K, ratio 3.2, stretch 2.35; Earth ratio 14.5, stretch 3.4; a 1 mm droplet index 0.12, a 5 mm droplet 1.6; 10⁻⁵ g ratio 0.05, stretch 1.00.
 
 Under gravity the droplet sizes and times shown still come from the zero-gravity models, and the card says so. A real droplet at 1 g burns faster.
 
