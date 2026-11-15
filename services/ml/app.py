@@ -376,13 +376,16 @@ T_SOOT_MIN, T_SOOT_REF = 1600.0, 2300.0   # soot starts to form in diffusion fla
 T_SOOT_GLOW = 0.85           # soot glows on the cooler fuel side of the flame: drawn at this fraction of flame temperature (a choice)
 Q_REF, LUM_GAMMA = 25.0, 0.6  # kW/m2 shown at brightness 1 (a 3 mm heptane droplet in air at ignition), and the display curve
 FADE_PART = 0.25             # a flame that goes out dims over this last part of the burn, down to LUM_END
-D_HOT = 3.0e-4               # m2/s: diffusivity of hot flame gas at 1 atm, order of magnitude (air at ~1500 K)
-STRETCH_MAX, STRETCH_HALF = 2.5, 3.0   # shape illustration: how far the teardrop stretches, and the ratio at which it is half way
+# Gas properties at 300 K and 1 atm, scaled to the mean of flame and room temperature and to the pressure:
+# diffusivity ~ T^1.75 / p, kinematic viscosity ~ T^1.7 / p. Oxygen in nitrogen; air.
+D_300, NU_300, PRANDTL = 2.0e-5, 1.6e-5, 0.7   # m2/s, m2/s, -
+SOOT_STEADY_PE = 6.0   # illustration: Peclet number at which soot in the rising gas keeps the flame fully yellow
 # Buoyant flames flicker: rising hot gas rolls up into a vortex that squeezes the flame, again and again. Measured flicker
 # frequencies follow f = 1.5 / sqrt(D) Hz at 1 g for a flame D metres wide (Cetegen and Ahmed 1993), which is
 # f = 0.48 sqrt(g / D) for any gravity. About 11 Hz for a 2 cm flame on Earth, as for a candle.
 FLICKER_C = 0.48
-FLICKER_HALF = 6.0   # illustration: buoyancy ratio at which the flicker is drawn at half strength (small flames burn steadily)
+FLICKER_HALF = 30.0  # illustration: Peclet number at which the flicker is drawn at half strength. Small flames burn steadily,
+                     # as a candle does; the flicker rule was measured on flames several centimetres across and larger
 PULSE_HZ = 1.0       # FLEX: some flames pulsed about once a second before going out radiatively (Dietrich et al. 2014)
 
 
@@ -413,10 +416,35 @@ def physics(fuel, f, gravity_g):
     t_soot = T_SOOT_GLOW * min(t_flame, T_NO_DISSOCIATION + 100)
     glow, ref = _blackbody(t_soot), _blackbody(T_SOOT_GLOW * T_SOOT_REF)
 
-    # Buoyancy: speed of hot gas rising past the flame, sqrt(g * flame diameter), against the speed at which gas diffuses
-    # across the flame's radius. Far below 1 the flame stays round; far above 1 it is a teardrop, as on Earth.
-    df0 = f["d0"] * float(_fsr(fuel, o2, 0.0, f["d0"])) / 1000.0
-    ratio = math.sqrt(gravity_g * 9.81 * df0) * df0 / (2 * D_HOT / f["p_atm"])
+    # ---- Shape under gravity: the flame surface of a fuel source in a rising gas stream.
+    # Hot gas rises at about U = sqrt(g * flame diameter * (1 - T_room / T_flame)). Fuel vapour leaving a small source into a
+    # uniform stream of speed U spreads as c = Q / (4 pi D r) * exp(-U (r - y) / (2 D)), with y measured upward: the textbook
+    # solution for steady diffusion in a moving fluid. The flame sits where fuel meets oxygen in the right proportion, a
+    # surface of constant c:
+    #     r * exp(Pe * (r - y) / L) = L          with Pe = U L / (2 D)
+    # With no gravity Pe = 0 and that is a sphere of radius L. With gravity the flame is pressed close under the droplet and
+    # drawn out above it, and it gets narrower as Pe grows. L, the height of the tip above the droplet, is the zero-gravity
+    # flame radius times `boost`.
+    # boost: moving gas also carries heat to the droplet faster, so it burns faster: K = K0 (1 + 0.3 Re^1/2 Pr^1/3), the
+    # Ranz-Marshall rule for a sphere in a stream. More fuel per second feeds a larger flame, by the same factor.
+    t_gas = min(t_flame, T_NO_DISSOCIATION)
+    t_mean = (t_gas + T0) / 2
+    diff = D_300 * (t_mean / T0) ** 1.75 / f["p_atm"]
+    nu = NU_300 * (t_mean / T0) ** 1.7 / f["p_atm"]
+    df0 = f["d0"] * float(_fsr(fuel, o2, 0.0, f["d0"])) / 1000.0   # zero-gravity flame diameter at ignition, m
+    u = math.sqrt(gravity_g * 9.81 * df0 * (1 - T0 / t_gas))
+    reynolds = u * f["d0"] * 1e-3 / nu
+    boost = 1 + 0.3 * math.sqrt(reynolds) * PRANDTL ** (1 / 3)
+    pe = u * (df0 / 2) * boost / (2 * diff)
+    # The surface in polar form: at angle th from straight up, r / L = W(a) / a with a = Pe (1 - cos th), W = Lambert's W.
+    th = np.linspace(0, math.pi, 361)
+    a = pe * (1 - np.cos(th))
+    w = np.log1p(a)
+    for _ in range(30):                       # Newton's method for w * exp(w) = a
+        w = w - (w * np.exp(w) - a) / (np.exp(w) * (w + 1))
+    rho = np.divide(w, a, out=np.ones_like(a), where=a > 1e-9)
+    top, bottom, half = boost, boost * float(rho[-1]), boost * float((rho * np.sin(th)).max())
+    width = 2 * half * df0 / 2                # flame width at ignition, m
     return {
         # above the limit the balance is no longer trustworthy, so the limit is reported with a flag instead of the number
         "t_flame_k": round(min(t_flame, T_NO_DISSOCIATION)), "t_high": t_flame > T_NO_DISSOCIATION, "mix_over": over,
@@ -424,16 +452,17 @@ def physics(fuel, f, gravity_g):
         "soot_index": round(soot, 2), "soot_t_k": round(t_soot),
         "soot_rgb": [round(float(v), 3) for v in glow / glow.max()],
         "soot_gain": round(float(np.clip(math.sqrt(glow[0] / ref[0]), 0.2, 2.0)), 2),
-        "gravity_g": gravity_g, "buoyancy_ratio": round(ratio, 2),
-        # how far the drawing stretches the flame upward: 1 = round. An illustration: no test here ran in partial gravity
-        "stretch": round(1 + STRETCH_MAX * ratio ** 2 / (ratio ** 2 + STRETCH_HALF ** 2), 2),
-        "flicker_hz": round(FLICKER_C * math.sqrt(gravity_g * 9.81 / df0), 1),
-        "flicker_amp": round(ratio ** 2 / (ratio ** 2 + FLICKER_HALF ** 2), 2),   # 0 = steady, 1 = full flicker
+        "gravity_g": gravity_g, "rise_cm_s": round(u * 100, 1), "peclet": round(pe, 2), "boost": round(boost, 2),
+        # the flame's extent in zero-gravity flame radii: above the droplet, below it, and its half width
+        "shape": {"top": round(top, 3), "bottom": round(bottom, 3), "half_width": round(half, 3)},
+        "aspect": round((top + bottom) / (2 * half), 2),   # height / width: 1 = round
+        "flicker_hz": round(FLICKER_C * math.sqrt(gravity_g * 9.81 / width), 1),
+        "flicker_amp": round(pe ** 2 / (pe ** 2 + FLICKER_HALF ** 2), 2),   # 0 = steady, 1 = full flicker
         "pulse_hz": PULSE_HZ, "q_ref": Q_REF,
     }
 
 
-def _burn(fuel, o2, d0, k, t_end, ph, goes_out):
+def _burn(fuel, o2, d0, k, t_end, ph, goes_out, k_model):
     t = np.linspace(0, max(t_end, 1e-3), SAMPLES)
     d = np.sqrt(np.maximum(d0 ** 2 - k * t, 0))
     fsr = _fsr(fuel, o2, t, d0)
@@ -441,18 +470,23 @@ def _burn(fuel, o2, d0, k, t_end, ph, goes_out):
     # Heat released per unit flame surface, kW/m2. The d^2 law gives the fuel burned per second, (pi/4) rho K d, and all of
     # it burns at the flame, a sphere of diameter df. Flame light follows heat release, so this sets the brightness.
     p = FUEL[fuel]
-    q = np.divide(p["rho"] * (k * 1e-6) * (d * 1e-3) * (p["lhv"] / p["molar"] * 1e6), 4 * (df * 1e-3) ** 2,
+    # Under gravity the same figure is the brightness at the flame's tip side of things: the renderer scales it locally by
+    # how steeply fuel and oxygen meet (see field() in flame3d.ts). So it uses the model's K, not the convection-boosted one:
+    # the boost makes the flame larger, not brighter per unit area.
+    lhv = p["lhv"] / p["molar"] * 1e6        # J/kg
+    q = np.divide(p["rho"] * (k_model * 1e-6) * (d * 1e-3) * lhv, 4 * (df * 1e-3) ** 2,
                   out=np.zeros_like(d), where=df > 0) / 1000.0
+    power = math.pi / 4 * p["rho"] * (k * 1e-6) * (d * 1e-3) * lhv   # W: all the fuel burned per second, at the drawn rate
     lum = np.clip((q / Q_REF) ** LUM_GAMMA, 0.05, 2.5)
     if goes_out:   # FLEX flames were "very dim near flame extinction": the heat balance alone does not show that
         lum = lum * (1 - (1 - LUM_END) * np.clip((t / t[-1] - (1 - FADE_PART)) / FADE_PART, 0, 1))
     s = ph["soot_index"]
     # the glow at ignition fades; under gravity soot keeps forming in the rising plume, as in a candle
-    steady = 0.8 * s * min(ph["buoyancy_ratio"] / STRETCH_HALF, 1.0)
+    steady = 0.8 * s * min(ph["peclet"] / SOOT_STEADY_PE, 1.0)
     soot = s * np.exp(-t / (SOOT_TAU * min(max(s, 0.25), 3.0))) + steady if s > 0 else np.zeros_like(t)
     r = lambda a, n=3: [round(float(v), n) for v in a]
     return {"t_end": round(float(t[-1]), 2), "t": r(t), "d": r(d), "df": r(df, 2), "fsr": r(fsr, 2),
-            "q": r(q, 1), "lum": r(lum, 2), "soot": r(soot, 2)}
+            "q": r(q, 1), "w": r(power, 1), "lum": r(lum, 2), "soot": r(soot, 2)}
 
 
 def flame(fuel, f, k, p_out, gravity_g=0.0):
@@ -460,6 +494,7 @@ def flame(fuel, f, k, p_out, gravity_g=0.0):
     if k <= 0:
         return None
     ph = physics(fuel, f, gravity_g)
+    k_model, k = k, k * ph["boost"]   # under gravity the drawn burn uses the convection-boosted rate; boost is 1 without gravity
     sc = MODELS["scale"]
     runs = [r for r in MODELS["train_rows"] if r["fuel"] == fuel and r.get("end") == "Extinction" and r.get("d_ext")]
     near = sorted(runs, key=lambda r: sum(((r[c] - f[c]) / sc[c]) ** 2 for c in sc))[:NEAREST_OUT]
@@ -471,10 +506,10 @@ def flame(fuel, f, k, p_out, gravity_g=0.0):
         out = {"p": round(p_out, 3), "d_end": round(d_end, 2), "ratio": round(ratio, 2),
                "mode": "radiative" if fuel == "Heptane" else "diffusive", "retreat_s": RETREAT_S if fuel == "Heptane" else 0,
                "from_runs": [{"id": r["run"], "d0_mm": r["d0"], "d_ext_mm": r["d_ext"], "ratio": round(r["d_ext"] / r["d0"], 2)} for r in near],
-               **_burn(fuel, o2, d0, k, (d0 ** 2 - d_end ** 2) / k, ph, True)}
-    burnout = {"p": round(1 - p_out, 3), "d_end": 0, "mode": "burnout", "retreat_s": 0, **_burn(fuel, o2, d0, k, d0 ** 2 / k, ph, False)}
+               **_burn(fuel, o2, d0, k, (d0 ** 2 - d_end ** 2) / k, ph, True, k_model)}
+    burnout = {"p": round(1 - p_out, 3), "d_end": 0, "mode": "burnout", "retreat_s": 0, **_burn(fuel, o2, d0, k, d0 ** 2 / k, ph, False, k_model)}
     lo, hi = FSR_M_LINE[0][0], FSR_M_LINE[1][0]
-    return {"fuel": fuel, "k": round(k, 3), "d0": d0, "default": "out" if out and p_out >= 0.5 else "burnout",
+    return {"fuel": fuel, "k": round(k_model, 3), "k_drawn": round(k, 3), "d0": d0, "default": "out" if out and p_out >= 0.5 else "burnout",
             "out": out, "burnout": burnout, "physics": ph,
             "fsr_o2_held": o2 < lo or o2 > hi, "fsr_o2_range": [round(lo * 100, 1), round(hi * 100, 1)],
             # methanol: the settled ratio at this oxygen level; heptane: the oxygen scaling applied to the measured line

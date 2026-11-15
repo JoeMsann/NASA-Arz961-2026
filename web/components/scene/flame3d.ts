@@ -28,7 +28,8 @@ export type FlameFrame = {
   cut: boolean;           // show only half of the flame, so its distance from the droplet can be seen from the side
   sootRgb: [number, number, number];   // colour of the soot glow (black-body, from the estimated soot temperature)
   sootGain: number;       // how brightly the soot glows relative to the reference flame
-  stretch: number;        // 1 = round; above 1 the flame is drawn pulled upward by buoyancy (an illustration)
+  pe: number;             // Peclet number of the rising gas: 0 = no gravity, a round flame
+  scale: number;          // height of the flame tip above the droplet, in zero-gravity flame radii (1 without gravity)
   needles: boolean;       // show the two fuel deployment needles
   time: number;           // seconds since ignition: everything that moves is a function of it, so a paused frame is still
   flickerHz: number;      // how often the buoyant flame flickers (0 without gravity)
@@ -37,7 +38,8 @@ export type FlameFrame = {
 };
 export type FlameScene = {
   frame(f: FlameFrame): void;
-  fit(fovMm: number, stretch?: number): void;   // frame the camera so the flame (fovMm across, stretched upward) fills the view
+  /** Frame the camera on the flame. fovMm: view size for a round flame. shape: its extent in zero-gravity flame radii. */
+  fit(fovMm: number, shape?: { top: number; bottom: number; half_width: number }): void;
   pxPerMm(): number;              // CSS pixels per millimetre at the droplet's depth
   onView(cb: () => void): void;   // called when the user turns or zooms the view
   dispose(): void;
@@ -83,10 +85,10 @@ const GAS_FRAG = /* glsl */ `
   uniform float uEdge;     // extinction sweep position along x (10 = none)
   uniform float uCut;      // 1 = only the half with x < 0
   uniform vec3 uSootCol;   // soot glow colour times its strength
-  uniform float uStretch;  // 1 = round flame; above 1 = pulled upward by buoyancy
+  uniform float uPe; uniform float uScale;   // Peclet number of the rising gas; height of the flame tip in flame radii
   uniform float uFlickHz; uniform float uFlickAmp;   // flicker of the buoyant flame: frequency, and strength 0 to 1
   uniform float uPulse;    // slow pulsing before extinction, -1 to 1
-  const int STEPS = 96;
+  const int STEPS = 128;
   const float BOUND = ${BOUND.toFixed(3)}, RC = ${RC.toFixed(4)}, OUT = ${OUT.toFixed(4)}, IN = ${IN.toFixed(4)};
 
   float hash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -97,29 +99,32 @@ const GAS_FRAG = /* glsl */ `
   }
   float fbm(vec3 p) { return 0.55 * noise(p) + 0.3 * noise(p * 2.1 + 3.7) + 0.15 * noise(p * 4.3 - 1.3); }
 
-  // Buoyancy: maps a point of the buoyant flame back onto the round one, and returns how far up the flame it is (0 at the
-  // droplet, about 1 at the tip). Above the droplet the flame is drawn out by uStretch; below, it sits closer to the
-  // droplet, where fresh gas flows in. Weak buoyancy gives a blunt egg; strong buoyancy a narrower flame with a sharp tip.
-  // The flicker: once per cycle a ring of rising hot gas squeezes the flame, so a bulge and a neck travel up it, the tip
-  // bobs, and the whole plume leans a little this way and that.
-  vec4 warp(vec3 p) {
-    if (uStretch < 1.002) return vec4(p, 0.0);
-    float strong = smoothstep(1.0, 3.4, uStretch);
-    float ph = 6.2832 * uFlickHz * uTime;
-    float s = uStretch * (1.0 + 0.11 * uFlickAmp * sin(ph));
-    float up = max(p.y, 0.0) / s;
-    float w = mix(1.0, mix(0.72, 0.2, strong), smoothstep(0.0, 1.05, up)) * mix(1.0, 0.82, strong * smoothstep(0.0, 0.5, up));
-    w *= 1.0 + 0.42 * uFlickAmp * up * sin(ph - 7.5 * up);
-    vec2 lean = 0.55 * uFlickAmp * up * up * vec2(noise(vec3(uTime * uFlickHz * 0.37, 0.5, 3.0)) - 0.5,
-                                                  noise(vec3(7.0, uTime * uFlickHz * 0.31, 1.5)) - 0.5);
-    float sy = p.y > 0.0 ? s : mix(1.0, 0.7, min(uStretch - 1.0, 1.0));
-    return vec4((p.x - lean.x) / w, p.y / sy, (p.z - lean.y) / w, up);
+  // The flame surface of a fuel source in a rising gas stream (physics() in services/ml/app.py has the derivation):
+  //     r * exp(Pe * (r - y)) = 1      in units of the tip height, y upward.
+  // field() returns the left-hand side, s: the flame is where s is near 1, the droplet is at s = 0, and with Pe = 0 it is
+  // simply the distance from the droplet, so the flame is a sphere. grad is how steeply s rises, relative to the round
+  // flame: fuel and oxygen meet faster where it is steep, which is under the droplet.
+  float field(vec3 q, out float grad) {
+    float r = length(q), pr = uPe * r, c = r > 1e-5 ? q.y / r : 0.0;
+    float e = exp(min(uPe * (r - q.y), 40.0));
+    grad = e * sqrt(max((1.0 + pr) * (1.0 + pr) - 2.0 * pr * (1.0 + pr) * c + pr * pr, 0.0)) / uScale;
+    return r * e;
+  }
+  // Flicker (only when uFlickAmp > 0): once per cycle a ring of rising hot gas squeezes the flame, so a bulge and a neck
+  // travel up it, the tip bobs and the plume leans a little. An illustration laid over the steady shape.
+  vec3 flicker(vec3 q) {
+    if (uFlickAmp < 0.005) return q;
+    float ph = 6.2832 * uFlickHz * uTime, up = clamp(q.y, 0.0, 1.3);
+    float w = 1.0 + 0.42 * uFlickAmp * up * sin(ph - 7.5 * up);
+    vec2 lean = 0.3 * uFlickAmp * up * up * vec2(noise(vec3(uTime * uFlickHz * 0.37, 0.5, 3.0)) - 0.5,
+                                                 noise(vec3(7.0, uTime * uFlickHz * 0.31, 1.5)) - 0.5);
+    return vec3((q.x - lean.x) / w, q.y > 0.0 ? q.y / (1.0 + 0.11 * uFlickAmp * sin(ph)) : q.y, (q.z - lean.y) / w);
   }
 
   void main() {
     vec3 ro = cameraPosition / uR, rd = normalize(vWorld - cameraPosition);
     float b = dot(ro, rd), c = dot(ro, ro);
-    float bound = BOUND * max(uStretch, 1.0) * (1.0 + 0.15 * uFlickAmp);
+    float bound = BOUND * max(uScale, 1.0) * (1.0 + 0.15 * uFlickAmp);
     float h = b * b - (c - bound * bound);
     if (h < 0.0) discard;
     h = sqrt(h);
@@ -135,22 +140,25 @@ const GAS_FRAG = /* glsl */ `
     float trans = 1.0;
     for (int i = 0; i < STEPS; i++) {
       vec3 p = ro + rd * (t0 + (float(i) + jitter) * dt);
-      vec4 q = warp(p);
-      float r = length(q.xyz) / (1.0 + 0.05 * uPulse);
+      vec3 q = flicker(p / uScale);
+      float grad;
+      float r = field(q, grad) / (1.0 + 0.05 * uPulse);
       // wrinkles carried up the flame with the gas, stronger toward the tip
-      if (uFlickAmp > 0.01) r *= 1.0 + 0.22 * uFlickAmp * q.w * (noise(vec3(p.x * 2.4, p.y * 1.5 - uTime * uFlickHz * 0.9, p.z * 2.4)) - 0.5);
+      if (uFlickAmp > 0.01) r *= 1.0 + 0.22 * uFlickAmp * clamp(q.y, 0.0, 1.0) * (noise(vec3(p.x * 2.4, p.y * 1.5 - uTime * uFlickHz * 0.9, p.z * 2.4)) - 0.5);
       float keep = (1.0 - smoothstep(uEdge - 0.3, uEdge, p.x)) * (uCut > 0.5 ? step(p.x, 0.0) : 1.0);
       if (keep <= 0.0) continue;
       float d = r - RC;
       float glow = d > 0.0 ? exp(-d * d / (OUT * OUT)) : exp(-pow(-d / IN, 1.4));
       vec3 col = mix(mix(uInner, uPeak, smoothstep(-0.30, -0.03, d)), uRim, smoothstep(0.0, 0.09, d));
       // real flames are never perfectly even: a faint, fixed mottling (it does not move, so the flame does not flicker)
-      vec3 emit = col * glow * (1.0 + 0.16 * (noise(p * 1.7 + 11.0) - 0.5)) * 1.05 * uLum;
+      // the sheet is thinner where s rises steeply (x grad restores its brightness per area), and it burns faster there
+      // (brightness on the same 0.6 display curve as the flame as a whole, limited to 1.6 times)
+      vec3 emit = col * glow * (1.0 + 0.16 * (noise(p * 1.7 + 11.0) - 0.5)) * 0.8 * uLum * grad * min(pow(grad, 0.6), 1.6);
       float dens = 0.0;
       if (uSoot > 0.01) {
         // soot inside the flame glows by its own heat. Where the line of sight passes through a lot of it the picture
         // burns out to white-yellow, as in the photographs; toward its thin edge it stays orange
-        float s = r / 0.4;
+        float s = r / mix(0.4, 0.62, clamp(uPe / 4.0, 0.0, 1.0));   // rising gas carries soot up through more of the flame
         dens = exp(-s * s) * uSoot * (0.5 + 1.0 * fbm(p * 3.2 + vec3(0.0, 0.0, uTime * 0.5)));
         emit += uSootCol * dens * 2.6;
       }
@@ -261,7 +269,7 @@ export function createFlameScene(host: HTMLElement): FlameScene | null {
       uR: { value: 1 }, uDrop: { value: 0.1 }, uInner: { value: new THREE.Vector3() }, uPeak: { value: new THREE.Vector3() },
       uRim: { value: new THREE.Vector3() }, uLum: { value: 1 }, uSoot: { value: 0 },
       uTime: { value: 0 }, uEdge: { value: 10 }, uCut: { value: 0 },
-      uSootCol: { value: new THREE.Vector3(1, 0.5, 0.1) }, uStretch: { value: 1 },
+      uSootCol: { value: new THREE.Vector3(1, 0.5, 0.1) }, uPe: { value: 0 }, uScale: { value: 1 },
       uFlickHz: { value: 0 }, uFlickAmp: { value: 0 }, uPulse: { value: 0 },
     },
   });
@@ -328,11 +336,11 @@ export function createFlameScene(host: HTMLElement): FlameScene | null {
 
   const tanHalf = Math.tan(THREE.MathUtils.degToRad(FOV_Y / 2));
   const api: FlameScene = {
-    fit(fovMm, stretch = 1) {
-      // a stretched flame reaches about `stretch` flame radii above the droplet and less than one below it
-      const tall = stretch > 1.05, grow = tall ? (0.8 + stretch) / 2 : 1;
+    fit(fovMm, shape = { top: 1, bottom: 1, half_width: 1 }) {
+      // fovMm is 2.3 zero-gravity flame radii: a round flame with a little margin. A buoyant flame is taller and narrower.
+      const R = fovMm / 2.3, grow = Math.max(shape.top + shape.bottom, 2 * shape.half_width, 0.6) / 2;
       const fit = (fovMm * grow / 2) / (tanHalf * Math.min(1, camera.aspect));
-      controls.target.set(0, tall ? (fovMm / 2.3) * (0.92 * stretch - 0.75) / 2 : 0, 0);
+      controls.target.set(0, R * (shape.top - shape.bottom) / 2, 0);
       camera.position.set(0.55, 0.32, 1).normalize().multiplyScalar(fit).add(controls.target);
       controls.minDistance = fit * 0.25;
       controls.maxDistance = fit * 3;
@@ -352,8 +360,8 @@ export function createFlameScene(host: HTMLElement): FlameScene | null {
       gas.visible = on;
       if (on) {
         const u = gasMat.uniforms;
-        gas.scale.setScalar(R * BOUND * Math.max(f.stretch, 1) * (1 + 0.15 * f.flickerAmp));
-        u.uStretch.value = f.stretch;
+        gas.scale.setScalar(R * BOUND * Math.max(f.scale, 1) * (1 + 0.15 * f.flickerAmp));
+        u.uPe.value = f.pe; u.uScale.value = f.scale;
         u.uTime.value = f.time; u.uFlickHz.value = f.flickerHz; u.uFlickAmp.value = f.flickerAmp; u.uPulse.value = f.pulse;
         u.uSootCol.value.set(f.sootRgb[0] * f.sootGain, f.sootRgb[1] * f.sootGain, f.sootRgb[2] * f.sootGain);
         u.uR.value = R;
